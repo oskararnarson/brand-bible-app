@@ -10,43 +10,109 @@ import time
 # CONFIGURATION & STYLING
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="The Brand Bible Generator",
-    page_icon="⚡",
+    page_title="Brand Bible | Strategic Engine",
+    page_icon="⚫",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for a "High-End SaaS" feel
+# HIGH-END CSS OVERHAUL
 st.markdown("""
 <style>
-    .main {
-        background-color: #f8f9fa;
+    /* IMPORT FONTS */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+    
+    /* GLOBAL STYLES */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+        color: #1a1a1a;
     }
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
-        height: 3em;
-        font-weight: 600;
-        transition: all 0.2s;
+    
+    /* HIDE STREAMLIT ELEMENTS */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* CUSTOM HERO SECTION */
+    .hero-container {
+        padding: 2rem 0 3rem 0;
+        border-bottom: 1px solid #e0e0e0;
+        margin-bottom: 2rem;
     }
-    .pay-btn>button {
-        background-color: #28a745;
-        color: white;
-        border: none;
-    }
-    .gen-btn>button {
-        background-color: #000000;
-        color: white;
-        border: none;
-    }
-    h1 {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    .hero-title {
+        font-size: 3.5rem;
         font-weight: 800;
-        letter-spacing: -1px;
+        letter-spacing: -2px;
+        line-height: 1.1;
+        color: #000;
+        margin-bottom: 0.5rem;
     }
-    .reportview-container .main .block-container {
-        padding-top: 2rem;
+    .hero-subtitle {
+        font-size: 1.2rem;
+        font-weight: 400;
+        color: #666;
+        max-width: 600px;
     }
+    
+    /* SIDEBAR REFINEMENT */
+    section[data-testid="stSidebar"] {
+        background-color: #f7f7f7;
+        border-right: 1px solid #e0e0e0;
+    }
+    section[data-testid="stSidebar"] .block-container {
+        padding-top: 3rem;
+    }
+    
+    /* FORM ELEMENTS */
+    .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+        border-radius: 4px;
+        border: 1px solid #e0e0e0;
+        background-color: #fff;
+        color: #000;
+        padding: 0.5rem;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-color: #000;
+        box-shadow: none;
+    }
+    
+    /* BUTTONS */
+    div.stButton > button {
+        background-color: #000;
+        color: #fff;
+        border-radius: 0px;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.3s ease;
+        width: 100%;
+    }
+    div.stButton > button:hover {
+        background-color: #333;
+        color: #fff;
+        border: none;
+    }
+    div.stButton > button:active {
+        background-color: #000;
+        color: #fff;
+    }
+    
+    /* PAYMENT BUTTON SPECIFIC */
+    div[data-testid="stVerticalBlock"] > div > div[data-testid="stButton"] > button {
+        background-color: #000; 
+    }
+    
+    /* CARDS/CONTAINERS */
+    .feature-card {
+        background: white;
+        padding: 2rem;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+    }
+    
 </style>
 """, unsafe_allow_html=True)
 
@@ -57,7 +123,6 @@ st.markdown("""
 def sanitize_text_for_pdf(text):
     """
     Cleans text to ensure FPDF compatibility (Standard FPDF fonts are Latin-1).
-    Replaces common unicode characters with ASCII equivalents.
     """
     replacements = {
         '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"',
@@ -66,274 +131,209 @@ def sanitize_text_for_pdf(text):
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
-    
-    # Strip emojis or other non-latin-1 characters to prevent crashes
     return text.encode('latin-1', 'ignore').decode('latin-1')
 
 def scrape_website_text(url):
-    """
-    Scrapes the text content from a given URL to inform the brand strategy.
-    Includes headers to mimic a browser request.
-    """
-    if not url:
-        return None
-    
+    if not url: return None
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=10)
         response.raise_for_status()
-        
         soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style", "nav", "footer"]):
-            script.extract()
-            
+        for script in soup(["script", "style", "nav", "footer"]): script.extract()
         text = soup.get_text(separator=' ')
-        
-        # Clean up whitespace
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         clean_text = '\n'.join(chunk for chunk in chunks if chunk)
-        
-        return clean_text[:4000] # Truncate to avoid token limits
-        
-    except Exception as e:
-        st.warning(f"⚠️ Could not scrape website data: {str(e)}. Proceeding without URL context.")
-        return None
+        return clean_text[:4000]
+    except Exception: return None
 
 def create_pdf(content, company_name):
-    """
-    Generates a professional PDF from the Markdown-like text content.
-    """
     class PDF(FPDF):
         def header(self):
-            self.set_font('Arial', 'B', 15)
-            self.cell(0, 10, f'Brand Bible: {company_name}', 0, 1, 'C')
+            self.set_font('Arial', 'B', 12)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, f'STRATEGIC DOCUMENT: {company_name.upper()}', 0, 1, 'R')
             self.ln(10)
-
         def footer(self):
             self.set_y(-15)
             self.set_font('Arial', 'I', 8)
-            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+            self.set_text_color(200, 200, 200)
+            self.cell(0, 10, 'CONFIDENTIAL // BRAND BIBLE GENERATOR', 0, 0, 'C')
 
     pdf = PDF()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_font("Arial", size=12)
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_text_color(0, 0, 0)
     
-    # Simple parsing: Treat lines starting with # or ## as headers
     lines = content.split('\n')
     for line in lines:
-        sanitized_line = sanitize_text_for_pdf(line)
-        
+        s_line = sanitize_text_for_pdf(line)
         if line.startswith('###') or line.startswith('**'):
-            pdf.set_font("Arial", 'B', 12)
-            pdf.multi_cell(0, 10, sanitized_line.replace('#', '').replace('*', '').strip())
-            pdf.set_font("Arial", size=12)
-        elif line.startswith('##'):
             pdf.ln(5)
-            pdf.set_font("Arial", 'B', 14)
-            pdf.multi_cell(0, 10, sanitized_line.replace('#', '').strip())
-            pdf.set_font("Arial", size=12)
-        elif line.startswith('#'):
+            pdf.set_font("Arial", 'B', 12)
+            pdf.multi_cell(0, 8, s_line.replace('#', '').replace('*', '').strip())
+        elif line.startswith('##'):
             pdf.ln(10)
-            pdf.set_font("Arial", 'B', 16)
-            pdf.multi_cell(0, 10, sanitized_line.replace('#', '').strip())
-            pdf.ln(2)
-            pdf.set_font("Arial", size=12)
+            pdf.set_font("Arial", 'B', 24)
+            pdf.multi_cell(0, 12, s_line.replace('#', '').strip().upper())
+            pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 190, pdf.get_y()) # Underline
+            pdf.ln(5)
+        elif line.startswith('#'):
+            pdf.add_page()
+            pdf.set_font("Arial", 'B', 30)
+            pdf.multi_cell(0, 15, s_line.replace('#', '').strip().upper(), align='C')
+            pdf.ln(10)
         else:
-            pdf.multi_cell(0, 7, sanitized_line)
+            pdf.set_font("Arial", size=11)
+            pdf.multi_cell(0, 6, s_line)
             
     return pdf.output(dest='S').encode('latin-1')
 
 # -----------------------------------------------------------------------------
-# SESSION STATE MANAGEMENT
+# SESSION STATE
 # -----------------------------------------------------------------------------
-if 'payment_status' not in st.session_state:
-    st.session_state['payment_status'] = False
-
-if 'generated_bible' not in st.session_state:
-    st.session_state['generated_bible'] = None
+if 'payment_status' not in st.session_state: st.session_state['payment_status'] = False
+if 'generated_bible' not in st.session_state: st.session_state['generated_bible'] = None
 
 # -----------------------------------------------------------------------------
-# SIDEBAR: THE INTAKE
+# SIDEBAR: THE CONFIGURATOR
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.title("⚡ Brand Bible Gen.")
-    st.caption("Strategic Intelligence Engine")
+    st.markdown("<h3 style='margin-bottom:0px; letter-spacing: -1px;'>⚫ CONFIGURATOR</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 12px; color: #888; margin-bottom: 2rem;'>Define the parameters of the brand.</p>", unsafe_allow_html=True)
     
-    # API Key Input (Critical for functionality)
-    api_key = st.text_input("Google AI API Key", type="password", help="Required to activate the Brain (Gemini).")
+    api_key = st.text_input("Google AI Key", type="password", help="Enter your Gemini API Key")
     
-    st.divider()
-    
-    st.subheader("1. The Basics")
-    company_name = st.text_input("Company Name", "Acme Corp")
-    industry = st.text_input("Industry", "SaaS / Tech")
-    url = st.text_input("Current Website URL", placeholder="https://")
-    
-    st.subheader("2. Strategy Core")
-    enemy = st.text_input("The Enemy", placeholder="E.g., Complexity, Boredom, Old Gatekeepers")
-    origin_story = st.text_area("Origin Story (Brief)", placeholder="Started in a garage...")
-    one_thing = st.text_input("The One Thing", placeholder="The single specific value you provide")
-    
-    st.subheader("3. Psychology")
-    fears_desires = st.text_area("Audience Fears & Desires", placeholder="They fear obsolescence; they desire status.")
-    archetype = st.selectbox("Brand Archetype", 
-        ["The Rebel", "The Magician", "The Hero", "The Lover", "The Jester", 
-         "The Sage", "The Explorer", "The Ruler", "The Caregiver", "The Creator", 
-         "The Innocent", "The Everyman"])
-    feeling = st.text_input("The Feeling", placeholder="E.g., Relieved, Empowered, Elite")
-    
-    st.subheader("4. Visuals")
-    aesthetic = st.selectbox("Aesthetic Style", 
-        ["Swiss Minimalist", "Brutalist", "Corporate Memphis", "Luxury Serif", "Tech Dark Mode", "Organic/Natural", "Industrial"])
-    colors_avoid = st.text_input("Colors to Avoid", placeholder="E.g., No orange, no neon green")
-    
-    st.subheader("5. Voice")
-    voice_match = st.text_input("Celebrity Voice Match", placeholder="E.g., Morgan Freeman meets Ryan Reynolds")
-    taboo_words = st.text_input("Taboo Words", placeholder="E.g., 'Synergy', 'Disrupt', 'Cheap'")
+    # ORGANIZED ACCORDIONS
+    with st.expander("1. IDENTITY CORE", expanded=True):
+        company_name = st.text_input("Company Name", "Acme Corp")
+        industry = st.text_input("Industry", "SaaS")
+        url = st.text_input("Website (for context)", placeholder="https://")
+
+    with st.expander("2. STRATEGIC POSITION"):
+        enemy = st.text_input("The Enemy", placeholder="E.g. Boredom")
+        origin_story = st.text_area("Origin Story", height=100)
+        one_thing = st.text_input("The Single Value Prop")
+
+    with st.expander("3. PSYCHOGRAPHICS"):
+        fears_desires = st.text_area("Fears & Desires")
+        archetype = st.selectbox("Archetype", ["The Rebel", "The Magician", "The Hero", "The Lover", "The Sage", "The Creator", "The Ruler"])
+        feeling = st.text_input("Desired Feeling")
+
+    with st.expander("4. AESTHETICS & VOICE"):
+        aesthetic = st.selectbox("Style", ["Swiss Minimalist", "Brutalist", "Luxury Serif", "Tech Dark Mode"])
+        colors_avoid = st.text_input("Colors to Avoid")
+        voice_match = st.text_input("Celebrity Voice")
+        taboo_words = st.text_input("Taboo Words")
 
 # -----------------------------------------------------------------------------
-# MAIN APPLICATION LOGIC
+# MAIN APP
 # -----------------------------------------------------------------------------
 
-# Header
-st.title("The Brand Bible Generator")
-st.markdown("### Generate a comprehensive Brand Strategy, Voice, and Visual Identity System in seconds.")
-st.markdown("---")
+# HERO SECTION
+st.markdown("""
+<div class="hero-container">
+    <div class="hero-title">The Brand Bible.</div>
+    <div class="hero-subtitle">Generative Strategic Intelligence for modern companies. 
+    Turn a few inputs into a complete verbal and visual identity system.</div>
+</div>
+""", unsafe_allow_html=True)
 
-# Logic Container
-col1, col2 = st.columns([2, 1])
+col1, col2 = st.columns([2, 1], gap="large")
 
 with col1:
     if not st.session_state['payment_status']:
-        st.info("👋 Welcome. Please complete the intake form on the left.")
+        st.markdown("### The Deliverable")
         st.markdown("""
-        **What you get for $99:**
-        * **The North Star:** Mission, Vision, Manifesto.
-        * **The Persona:** Deep psychographic profiling.
-        * **Verbal Identity:** Taglines, hooks, and voice rules.
-        * **Visual Direction:** Briefs for logo, type, and art direction.
-        * **PDF Download:** Ready to send to your team or investors.
-        """)
+        <div class="feature-card">
+            <strong>01. The North Star</strong><br>
+            <span style="color:#666; font-size: 14px;">Mission, Vision, and a rallying Manifesto.</span>
+        </div>
+        <div class="feature-card">
+            <strong>02. The Verbal Identity</strong><br>
+            <span style="color:#666; font-size: 14px;">Voice guidelines, Taglines, and Hook points.</span>
+        </div>
+        <div class="feature-card">
+            <strong>03. The Visual Direction</strong><br>
+            <span style="color:#666; font-size: 14px;">Art Direction briefs for Designers (Logo, Type, Photo).</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.divider()
+        st.markdown("#### Unlock Access")
         
-        # Simulated Payment Gate
-        st.write("")
-        st.markdown("#### Unlock Strategic Access")
-        
-        # Using a container for the pay button to style it
-        pay_col, _ = st.columns([1,2])
+        # Payment Flow
+        pay_col, lock_col = st.columns([1,2])
         with pay_col:
-            pay_btn = st.button("Process Payment ($99)", key="pay_btn", type="primary")
-        
+            pay_btn = st.button("UNLOCK - $99", type="primary")
+        with lock_col:
+            st.markdown("<div style='padding-top: 10px; color: #666; font-size: 12px;'>🔒 256-bit Secure SSL Connection</div>", unsafe_allow_html=True)
+
         if pay_btn:
-            with st.spinner("Processing secure transaction..."):
-                time.sleep(2) # Simulate network delay
+            with st.spinner("Authenticating transaction..."):
+                time.sleep(1.5)
                 st.session_state['payment_status'] = True
-                st.balloons()
                 st.rerun()
-                
+
     else:
-        # ---------------------------------------------------------------------
-        # POST-PAYMENT VIEW
-        # ---------------------------------------------------------------------
-        st.success("✅ Payment Verified. Access Granted.")
+        # LOGIC FOR GENERATION
+        st.success("ACCESS GRANTED.")
+        st.markdown("---")
         
-        # Generation Trigger
-        if st.button("Generate Brand Bible", type="primary"):
+        if st.button("INITIALIZE GENERATION SEQUENCE"):
             if not api_key:
-                st.error("Please enter your Google AI API Key in the sidebar to proceed.")
+                st.error("SYSTEM ERROR: API Key missing in Configurator.")
             else:
-                # Configure Google AI
                 genai.configure(api_key=api_key)
                 
-                with st.spinner("Analyzing market data... scraping URL... synthesizing strategy..."):
-                    
-                    # 1. Scrape Context (if URL provided)
+                with st.spinner("Connecting to Neural Engine..."):
+                    # Scrape
                     web_context = ""
                     if url:
                         web_data = scrape_website_text(url)
-                        if web_data:
-                            web_context = f"\n\nCONTEXT FROM CURRENT WEBSITE:\n{web_data}"
-                    
-                    # 2. Construct Prompt
-                    system_prompt = (
-                        "You are a world-renowned Brand Strategist, combining the wit of Ogilvy, "
-                        "the distinctiveness of Wolff Olins, and the aesthetic rigor of Pentagram. "
-                        "Your job is not to chat, but to generate a comprehensive Brand Bible. "
-                        "Tone: Authoritative, Sophisticated, and Deeply Strategic. Do not be generic. Be bold."
-                    )
-                    
+                        if web_data: web_context = f"WEBSITE CONTEXT: {web_data}"
+
+                    # Prompts
+                    sys_prompt = "You are a Chief Brand Officer. Tone: Elite, Strategic, Brief. No fluff."
                     user_prompt = f"""
-                    Create a Brand Bible for: {company_name}
-                    
-                    DATA INPUTS:
-                    Industry: {industry}
-                    The Enemy: {enemy}
-                    Origin Story: {origin_story}
-                    The One Thing: {one_thing}
-                    Audience Fears/Desires: {fears_desires}
-                    Archetype: {archetype}
-                    Desired Feeling: {feeling}
-                    Aesthetic Preference: {aesthetic}
-                    Colors to Avoid: {colors_avoid}
-                    Voice Match: {voice_match}
-                    Taboo Words: {taboo_words}
+                    Generate Brand Bible for: {company_name} ({industry}).
+                    Strategy: Fighting '{enemy}'. Origin: {origin_story}. Value: {one_thing}.
+                    Psychology: Audience fears/desires: {fears_desires}. Archetype: {archetype}.
+                    Style: {aesthetic}. Voice: {voice_match}. Avoid: {colors_avoid}, {taboo_words}.
                     {web_context}
                     
-                    REQUIRED OUTPUT SECTIONS (Use Markdown Headers ##):
-                    1. THE NORTH STAR (Mission, Vision, and a rousing Brand Manifesto)
-                    2. THE PERSONA (Psychographic profile of the believer)
-                    3. VERBAL IDENTITY (Voice guidelines, "We say / We never say", 5 Taglines)
-                    4. VISUAL DIRECTION (Art Direction briefs for Logo, Typography, Photography)
+                    OUTPUT FORMAT (Markdown):
+                    # BRAND BIBLE: {company_name.upper()}
+                    ## 1. THE NORTH STAR
+                    (Mission, Vision, Manifesto)
+                    ## 2. THE PERSONA
+                    (Psychographics)
+                    ## 3. VERBAL IDENTITY
+                    (Voice Rules, Taglines)
+                    ## 4. VISUAL DIRECTION
+                    (Art Direction Brief)
                     """
                     
                     try:
-                        # Initialize Model (Gemini 1.5 Flash is great for speed/cost)
                         model = genai.GenerativeModel('gemini-1.5-flash')
-                        
-                        # Combine system instruction with user prompt
-                        full_prompt = f"{system_prompt}\n\n{user_prompt}"
-                        
-                        response = model.generate_content(full_prompt)
-                        
+                        response = model.generate_content(f"{sys_prompt}\n{user_prompt}")
                         st.session_state['generated_bible'] = response.text
-                        
                     except Exception as e:
-                        st.error(f"Generation Error: {e}")
+                        st.error(f"Generation Failed: {e}")
 
-        # Display Result
         if st.session_state['generated_bible']:
-            st.divider()
-            st.subheader(f"📂 Brand Bible: {company_name}")
-            
-            # Show content in an expander or main area
             st.markdown(st.session_state['generated_bible'])
-            
-            # PDF Generation
             pdf_bytes = create_pdf(st.session_state['generated_bible'], company_name)
-            
-            st.divider()
-            st.download_button(
-                label="Download Brand Bible (PDF)",
-                data=pdf_bytes,
-                file_name=f"{company_name.replace(' ', '_')}_Brand_Bible.pdf",
-                mime="application/pdf"
-            )
+            st.download_button("DOWNLOAD OFFICIAL PDF", pdf_bytes, f"{company_name}_Bible.pdf", "application/pdf")
 
-# Right Column - Visual Filler or Status
 with col2:
-    if st.session_state['payment_status']:
-        st.markdown("### Status")
-        st.write("🟢 **Account:** Premium")
-        st.write("🟢 **Credits:** Unlimited")
-        st.write(f"🏢 **Active Project:** {company_name}")
-    else:
-        st.markdown("### Examples")
-        st.info('"The Nike of Gardening Tools"')
-        st.info('"The Apple of Dog Food"')
-        st.info('"The Tesla of Toasters"')
+    if not st.session_state['payment_status']:
+        st.markdown("""
+        <div style="background: #f7f7f7; padding: 1.5rem; border-radius: 8px;">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 10px; color: #888;">RECENT GENERATIONS</div>
+            <div style="margin-bottom: 10px;"><strong>Oura Ring</strong><br><span style="color: #666; font-size: 12px;">Tech / Wellness</span></div>
+            <div style="margin-bottom: 10px;"><strong>Liquid Death</strong><br><span style="color: #666; font-size: 12px;">Beverage / FMCG</span></div>
+            <div><strong>MSCHF</strong><br><span style="color: #666; font-size: 12px;">Art / eCommerce</span></div>
+        </div>
+        """, unsafe_allow_html=True)
