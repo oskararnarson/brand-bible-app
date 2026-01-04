@@ -11,21 +11,21 @@ import time
 # -----------------------------------------------------------------------------
 st.set_page_config(
     page_title="Brand Bible | Strategic Engine",
-    page_icon="⚫",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# HIGH-END CSS OVERHAUL (DARK MODE)
+# "SWISS STUDIO" BRIGHT THEME
 st.markdown("""
 <style>
     /* IMPORT FONTS */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
     
-    /* GLOBAL STYLES - DARK THEME */
+    /* GLOBAL STYLES */
     .stApp {
-        background-color: #000000;
-        color: #ffffff;
+        background-color: #ffffff;
+        color: #000000;
     }
     
     html, body, [class*="css"] {
@@ -33,8 +33,11 @@ st.markdown("""
     }
     
     /* TEXT OVERRIDES */
-    h1, h2, h3, h4, h5, h6, p, li, .stMarkdown {
-        color: #ffffff !important;
+    h1, h2, h3, h4, h5, h6, .stMarkdown {
+        color: #111111 !important;
+    }
+    p, li {
+        color: #333333 !important;
     }
     
     /* HIDE STREAMLIT ELEMENTS */
@@ -45,79 +48,103 @@ st.markdown("""
     /* CUSTOM HERO SECTION */
     .hero-container {
         padding: 4rem 0 3rem 0;
-        border-bottom: 1px solid #333;
-        margin-bottom: 2rem;
+        border-bottom: 2px solid #000;
+        margin-bottom: 3rem;
+        background-color: #fff;
     }
     .hero-title {
-        font-size: 4rem;
+        font-size: 4.5rem;
         font-weight: 800;
-        letter-spacing: -2px;
+        letter-spacing: -3px;
         line-height: 1;
-        color: #ffffff;
+        color: #000;
         margin-bottom: 1rem;
     }
     .hero-subtitle {
-        font-size: 1.2rem;
-        font-weight: 300;
-        color: #888;
-        max-width: 600px;
+        font-size: 1.4rem;
+        font-weight: 400;
+        color: #555;
+        max-width: 700px;
+        line-height: 1.4;
     }
     
     /* SIDEBAR REFINEMENT */
     section[data-testid="stSidebar"] {
-        background-color: #111;
-        border-right: 1px solid #333;
+        background-color: #F7F9FC; /* Very subtle cool gray */
+        border-right: 1px solid #E2E8F0;
     }
     section[data-testid="stSidebar"] .block-container {
         padding-top: 3rem;
     }
     
-    /* FORM ELEMENTS - DARK */
+    /* FORM ELEMENTS - CLEAN & BRIGHT */
     .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
-        border-radius: 0px;
-        border: 1px solid #333;
-        background-color: #000;
-        color: #fff;
+        border-radius: 6px;
+        border: 1px solid #E2E8F0;
+        background-color: #ffffff;
+        color: #000;
         padding: 0.5rem;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     .stTextInput input:focus, .stTextArea textarea:focus {
-        border-color: #fff;
-        box-shadow: none;
+        border-color: #2563EB; /* Bright Blue Focus */
+        box-shadow: 0 0 0 2px rgba(37,99,235,0.1);
     }
     
     /* ACCORDIONS */
     .stExpander {
-        border: 1px solid #333;
-        border-radius: 0px;
-        background-color: #000;
+        border: 1px solid #E2E8F0;
+        border-radius: 6px;
+        background-color: #ffffff;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.02);
     }
     
     /* BUTTONS */
     div.stButton > button {
-        background-color: #fff;
-        color: #000;
-        border-radius: 0px;
-        border: 1px solid #fff;
+        background-color: #000000;
+        color: #ffffff;
+        border-radius: 6px;
+        border: none;
         padding: 0.75rem 1.5rem;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        transition: all 0.3s ease;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        transition: all 0.2s ease;
         width: 100%;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     div.stButton > button:hover {
-        background-color: #000;
+        background-color: #2563EB; /* Bright Blue Hover */
         color: #fff;
-        border: 1px solid #fff;
+        transform: translateY(-1px);
+    }
+    div.stButton > button:active {
+        transform: translateY(0px);
+    }
+    
+    /* PAYMENT BUTTON STYLE override */
+    div[data-testid="stVerticalBlock"] > div > div[data-testid="stButton"] > button {
+        background-color: #2563EB; /* Primary Action Blue */
     }
     
     /* CARDS/CONTAINERS */
     .feature-card {
-        background: #111;
+        background: #ffffff;
         padding: 2rem;
-        border: 1px solid #333;
-        border-radius: 0px;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
         margin-bottom: 1rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s;
+    }
+    .feature-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+    .feature-number {
+        font-weight: 800;
+        font-size: 1.2rem;
+        color: #2563EB;
+        margin-bottom: 0.5rem;
     }
     
 </style>
@@ -159,13 +186,15 @@ def create_pdf(content, company_name):
     class PDF(FPDF):
         def header(self):
             self.set_font('Arial', 'B', 12)
-            self.set_text_color(150, 150, 150)
+            self.set_text_color(0, 0, 0)
             self.cell(0, 10, f'STRATEGIC DOCUMENT: {company_name.upper()}', 0, 1, 'R')
+            self.ln(5)
+            self.line(10, 25, 200, 25) # Top line
             self.ln(10)
         def footer(self):
             self.set_y(-15)
             self.set_font('Arial', 'I', 8)
-            self.set_text_color(200, 200, 200)
+            self.set_text_color(128, 128, 128)
             self.cell(0, 10, 'CONFIDENTIAL // BRAND BIBLE GENERATOR', 0, 0, 'C')
 
     pdf = PDF()
@@ -184,12 +213,11 @@ def create_pdf(content, company_name):
             pdf.ln(10)
             pdf.set_font("Arial", 'B', 24)
             pdf.multi_cell(0, 12, s_line.replace('#', '').strip().upper())
-            pdf.line(pdf.get_x(), pdf.get_y(), pdf.get_x() + 190, pdf.get_y()) # Underline
-            pdf.ln(5)
+            pdf.ln(2)
         elif line.startswith('#'):
             pdf.add_page()
-            pdf.set_font("Arial", 'B', 30)
-            pdf.multi_cell(0, 15, s_line.replace('#', '').strip().upper(), align='C')
+            pdf.set_font("Arial", 'B', 36)
+            pdf.multi_cell(0, 20, s_line.replace('#', '').strip().upper(), align='L')
             pdf.ln(10)
         else:
             pdf.set_font("Arial", size=11)
@@ -207,8 +235,8 @@ if 'generated_bible' not in st.session_state: st.session_state['generated_bible'
 # SIDEBAR: THE CONFIGURATOR
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("<h3 style='margin-bottom:0px; letter-spacing: -1px; color: #fff;'>⚫ CONFIGURATOR</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='font-size: 12px; color: #666; margin-bottom: 2rem;'>Define the parameters of the brand.</p>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-bottom:0px; letter-spacing: -1px; color: #000;'>⚙️ CONFIGURATION</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 2rem;'>Input your parameters below.</p>", unsafe_allow_html=True)
     
     api_key = st.text_input("Google AI Key", type="password", help="Enter your Gemini API Key")
     
@@ -242,8 +270,8 @@ with st.sidebar:
 st.markdown("""
 <div class="hero-container">
     <div class="hero-title">The Brand Bible.</div>
-    <div class="hero-subtitle">Generative Strategic Intelligence for modern companies. 
-    Turn a few inputs into a complete verbal and visual identity system.</div>
+    <div class="hero-subtitle">Generative Strategic Intelligence. 
+    Turn simple inputs into a complete verbal and visual identity system.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -254,43 +282,46 @@ with col1:
         st.markdown("### The Deliverable")
         st.markdown("""
         <div class="feature-card">
-            <strong style="color:white;">01. The North Star</strong><br>
-            <span style="color:#666; font-size: 14px;">Mission, Vision, and a rallying Manifesto.</span>
+            <div class="feature-number">01.</div>
+            <strong>The North Star</strong><br>
+            <span style="color:#555; font-size: 14px;">Mission, Vision, and a rallying Manifesto.</span>
         </div>
         <div class="feature-card">
-            <strong style="color:white;">02. The Verbal Identity</strong><br>
-            <span style="color:#666; font-size: 14px;">Voice guidelines, Taglines, and Hook points.</span>
+            <div class="feature-number">02.</div>
+            <strong>The Verbal Identity</strong><br>
+            <span style="color:#555; font-size: 14px;">Voice guidelines, Taglines, and Hook points.</span>
         </div>
         <div class="feature-card">
-            <strong style="color:white;">03. The Visual Direction</strong><br>
-            <span style="color:#666; font-size: 14px;">Art Direction briefs for Designers (Logo, Type, Photo).</span>
+            <div class="feature-number">03.</div>
+            <strong>The Visual Direction</strong><br>
+            <span style="color:#555; font-size: 14px;">Art Direction briefs for Designers (Logo, Type, Photo).</span>
         </div>
         """, unsafe_allow_html=True)
 
         st.divider()
-        st.markdown("#### Unlock Access")
+        st.markdown("#### Ready to Start?")
         
         # Payment Flow
-        pay_col, lock_col = st.columns([1,2])
+        pay_col, lock_col = st.columns([1,1])
         with pay_col:
-            pay_btn = st.button("UNLOCK - $99", type="primary")
+            pay_btn = st.button("UNLOCK ACCESS - $99", type="primary")
         with lock_col:
-            st.markdown("<div style='padding-top: 10px; color: #666; font-size: 12px;'>🔒 256-bit Secure SSL Connection</div>", unsafe_allow_html=True)
+            st.markdown("<div style='padding-top: 15px; color: #888; font-size: 13px;'>🔒 Secure SSL Connection</div>", unsafe_allow_html=True)
 
         if pay_btn:
-            with st.spinner("Authenticating transaction..."):
+            with st.spinner("Authenticating..."):
                 time.sleep(1.5)
                 st.session_state['payment_status'] = True
                 st.rerun()
 
     else:
         # LOGIC FOR GENERATION
-        st.success("ACCESS GRANTED.")
+        st.success("✅ ACCESS GRANTED")
         st.markdown("---")
         
         if st.button("INITIALIZE GENERATION SEQUENCE"):
             if not api_key:
-                st.error("SYSTEM ERROR: API Key missing in Configurator.")
+                st.error("⚠️ SYSTEM ERROR: API Key missing in Configurator.")
             else:
                 genai.configure(api_key=api_key)
                 
@@ -337,10 +368,19 @@ with col1:
 with col2:
     if not st.session_state['payment_status']:
         st.markdown("""
-        <div style="background: #111; padding: 1.5rem; border: 1px solid #333; border-radius: 0px;">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 10px; color: #888;">RECENT GENERATIONS</div>
-            <div style="margin-bottom: 10px; color: white;"><strong>Oura Ring</strong><br><span style="color: #666; font-size: 12px;">Tech / Wellness</span></div>
-            <div style="margin-bottom: 10px; color: white;"><strong>Liquid Death</strong><br><span style="color: #666; font-size: 12px;">Beverage / FMCG</span></div>
-            <div style="color: white;"><strong>MSCHF</strong><br><span style="color: #666; font-size: 12px;">Art / eCommerce</span></div>
+        <div style="background: #F8F9FA; padding: 1.5rem; border: 1px solid #E2E8F0; border-radius: 8px;">
+            <div style="font-size: 12px; font-weight: 700; margin-bottom: 15px; color: #999; letter-spacing: 1px;">RECENT GENERATIONS</div>
+            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                <strong>Oura Ring</strong><br>
+                <span style="color: #666; font-size: 13px;">Tech / Wellness</span>
+            </div>
+            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+                <strong>Liquid Death</strong><br>
+                <span style="color: #666; font-size: 13px;">Beverage / FMCG</span>
+            </div>
+            <div>
+                <strong>MSCHF</strong><br>
+                <span style="color: #666; font-size: 13px;">Art / eCommerce</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
