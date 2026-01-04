@@ -16,25 +16,21 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# APPLE-GRADE CSS SYSTEM (REFINED & READABLE)
+# CSS SYSTEM
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* 1. RESET & FONTS */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
     
     html, body, [class*="css"] {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         color: #1d1d1f;
-        background-color: #f5f5f7; /* Apple Light Gray Background */
+        background-color: #f5f5f7;
     }
 
-    /* 2. LAYOUT CORRECTION - FIXING THE "EDGES" ISSUE */
     section[data-testid="stSidebar"] { display: none !important; }
-    header { visibility: hidden !important; }
-    footer { visibility: hidden !important; }
+    header, footer { visibility: hidden !important; }
     
-    /* We restore padding to the main container so it doesn't touch edges */
     .block-container { 
         padding-top: 2rem; 
         padding-bottom: 2rem; 
@@ -42,7 +38,6 @@ st.markdown("""
         margin: 0 auto;
     }
 
-    /* 3. ANIMATIONS */
     @keyframes fadeInUp {
         from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
@@ -51,7 +46,7 @@ st.markdown("""
         animation: fadeInUp 0.6s ease-out forwards;
     }
 
-    /* 4. LANDING PAGE HERO */
+    /* LANDING HERO */
     .hero-container {
         text-align: center;
         padding: 80px 20px;
@@ -59,14 +54,6 @@ st.markdown("""
         border-radius: 24px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
         margin-bottom: 40px;
-    }
-    .hero-eyebrow {
-        font-size: 13px;
-        font-weight: 600;
-        color: #0071e3;
-        text-transform: uppercase;
-        letter-spacing: 1.5px;
-        margin-bottom: 12px;
     }
     .hero-title {
         font-size: 56px;
@@ -92,31 +79,21 @@ st.markdown("""
         margin-top: 40px;
         text-align: left;
     }
-    .feature-item h3 {
-        font-size: 18px;
-        font-weight: 600;
-        color: #1d1d1f;
-        margin-bottom: 8px;
-    }
-    .feature-item p {
-        font-size: 15px;
-        color: #6e6e73;
-        line-height: 1.4;
-    }
+    .feature-item h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+    .feature-item p { font-size: 15px; color: #6e6e73; line-height: 1.4; }
 
-    /* 5. APP CARD (SOLID WHITE - HIGH CONTRAST) */
+    /* APP CARD */
     .app-card {
         background: #ffffff;
         border-radius: 24px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.08); /* Deep, expensive shadow */
+        box-shadow: 0 20px 40px rgba(0,0,0,0.08);
         overflow: hidden;
         border: 1px solid rgba(0,0,0,0.05);
         display: flex;
-        min-height: 600px; /* Ensure height */
+        min-height: 600px;
     }
     
-    /* 6. FORM INPUTS (READABLE) */
-    /* We force a white background and grey border for max clarity */
+    /* INPUTS */
     .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
         background-color: #ffffff !important;
         border: 1px solid #d2d2d7 !important;
@@ -131,16 +108,8 @@ st.markdown("""
         border-color: #0071e3 !important;
         box-shadow: 0 0 0 4px rgba(0,113,227,0.15) !important;
     }
-    label {
-        font-size: 12px !important;
-        font-weight: 600 !important;
-        color: #86868b !important;
-        margin-bottom: 6px !important;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    /* 7. BUTTONS */
+    
+    /* BUTTONS */
     div.stButton > button {
         background-color: #0071e3;
         color: white;
@@ -162,50 +131,22 @@ st.markdown("""
         color: #1d1d1f !important;
         box-shadow: none !important;
     }
-
-    /* 8. TYPOGRAPHY & HELPERS */
-    h2 {
-        font-size: 32px;
-        font-weight: 600;
-        margin-bottom: 8px;
-        color: #1d1d1f;
-        letter-spacing: -0.5px;
-    }
-    .step-desc {
-        font-size: 17px;
-        color: #6e6e73;
-        margin-bottom: 32px;
-        max-width: 90%;
-    }
-    .api-helper {
-        font-size: 12px;
-        color: #0071e3;
-        margin-top: -10px;
-        margin-bottom: 20px;
-        text-decoration: none;
-        display: inline-block;
-    }
-    .api-helper:hover { text-decoration: underline; }
     
-    /* 9. PROGRESS */
-    .progress-bar {
-        display: flex;
-        gap: 6px;
-        margin-bottom: 30px;
+    .demo-btn button {
+        background-color: #e8f3ff !important;
+        color: #0071e3 !important;
+        border: 1px solid rgba(0,113,227,0.2) !important;
+        box-shadow: none !important;
     }
+
+    h2 { font-size: 32px; font-weight: 600; margin-bottom: 8px; color: #1d1d1f; letter-spacing: -0.5px; }
+    .step-desc { font-size: 17px; color: #6e6e73; margin-bottom: 32px; max-width: 90%; }
+    .api-helper { font-size: 12px; color: #0071e3; margin-top: -10px; margin-bottom: 20px; text-decoration: none; display: inline-block; }
+    
+    /* PROGRESS */
+    .progress-bar { display: flex; gap: 6px; margin-bottom: 30px; }
     .p-dot { width: 8px; height: 8px; border-radius: 50%; background: #e5e5e5; transition: 0.3s; }
     .p-dot.active { background: #1d1d1f; transform: scale(1.2); }
-    
-    /* 10. GENERATION STATUS */
-    .status-container {
-        padding: 20px;
-        background: #f5f5f7;
-        border-radius: 12px;
-        margin-top: 20px;
-        text-align: center;
-        color: #86868b;
-        font-size: 14px;
-    }
 
 </style>
 """, unsafe_allow_html=True)
@@ -224,12 +165,22 @@ for k in keys:
     if k not in st.session_state: st.session_state[k] = ""
 
 # -----------------------------------------------------------------------------
-# NAVIGATION
+# NAVIGATION & UTILS
 # -----------------------------------------------------------------------------
 def go_to_app(): st.session_state.page = 'app'; st.session_state.step = 1
 def next_step(): st.session_state.step += 1
 def prev_step(): st.session_state.step -= 1
 
+def fill_demo_data():
+    st.session_state.company_name = "Oura Ring"
+    st.session_state.industry = "Wearable Health Tech"
+    st.session_state.enemy = "Passive Tracking & Health Anxiety"
+    st.session_state.origin = "Started in Finland to help people sleep better, not just count steps."
+    st.session_state.one_thing = "Data that feels like a hug, not a spreadsheet."
+    st.session_state.archetype = "The Caregiver"
+    st.session_state.style = "Swiss Minimalist"
+    st.session_state.voice = "Jony Ive meets Brené Brown"
+    
 def render_progress(current):
     html = '<div class="progress-bar">'
     for i in range(1, 6):
@@ -237,6 +188,62 @@ def render_progress(current):
         html += f'<div class="p-dot {active}"></div>'
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# PDF ENGINE (ROBUST)
+# -----------------------------------------------------------------------------
+def sanitize_text_for_pdf(text):
+    # Robust replacement map for common encoding issues
+    replacements = {
+        '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"',
+        '\u2013': '-', '\u2014': '--', '\u2026': '...', '\u2022': '*',
+        '—': '--', '’': "'", '“': '"', '”': '"', '–': '-'
+    }
+    for k, v in replacements.items():
+        text = text.replace(k, v)
+    
+    # Force encode to Latin-1, replacing errors with ? instead of crashing
+    return text.encode('latin-1', 'replace').decode('latin-1')
+
+def create_pdf(text, company_name):
+    class PDF(FPDF):
+        def header(self):
+            self.set_font('Arial', 'B', 10)
+            self.cell(0, 10, f'{sanitize_text_for_pdf(company_name).upper()} | STRATEGIC BIBLE', 0, 1, 'C')
+            self.ln(10)
+    
+    try:
+        pdf = PDF()
+        pdf.add_page()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.set_font("Arial", size=11)
+        
+        lines = text.split('\n')
+        for line in lines:
+            safe_line = sanitize_text_for_pdf(line)
+            if line.startswith('# '):
+                pdf.set_font("Arial", 'B', 16)
+                pdf.ln(5)
+                pdf.multi_cell(0, 8, safe_line.replace('#', '').strip())
+                pdf.ln(5)
+                pdf.set_font("Arial", size=11)
+            elif line.startswith('## '):
+                pdf.set_font("Arial", 'B', 14)
+                pdf.ln(4)
+                pdf.multi_cell(0, 7, safe_line.replace('#', '').strip())
+                pdf.ln(2)
+                pdf.set_font("Arial", size=11)
+            elif line.startswith('### '):
+                pdf.set_font("Arial", 'B', 12)
+                pdf.multi_cell(0, 6, safe_line.replace('#', '').strip())
+                pdf.set_font("Arial", size=11)
+            else:
+                pdf.multi_cell(0, 5, safe_line)
+                pdf.ln(1)
+                
+        return pdf.output(dest='S').encode('latin-1')
+    except Exception as e:
+        return f"PDF Error: {str(e)}".encode('utf-8')
 
 # -----------------------------------------------------------------------------
 # PAGE 1: LANDING PAGE
@@ -291,8 +298,6 @@ else:
 
     # The Card Layout
     st.markdown('<div class="app-card animate-enter">', unsafe_allow_html=True)
-    
-    # We use Streamlit columns to simulate the Left/Right split inside the card
     c_left, c_right = st.columns([1, 1], gap="large")
     
     with c_left:
@@ -302,12 +307,20 @@ else:
         # --- STEP 1: ENTITY ---
         if st.session_state.step == 1:
             st.markdown("<h2>The Foundation.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">This is the bedrock. We need to know who you are to build a strategy that fits.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">This is the bedrock. Who are we building this for?</div>', unsafe_allow_html=True)
             
-            st.text_input("Company Name", key="company_name", placeholder="e.g. Acme Inc")
+            # DEMO BUTTON
+            c_input, c_demo = st.columns([3, 1])
+            with c_input:
+                st.text_input("Company Name", key="company_name", placeholder="e.g. Acme Inc")
+            with c_demo:
+                st.markdown('<div class="demo-btn">', unsafe_allow_html=True)
+                if st.button("⚡ Quick Fill"):
+                    fill_demo_data()
+                    st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
             st.text_input("Industry", key="industry", placeholder="e.g. Aerospace")
-            
-            # API Key with Helper Link
             st.text_input("Gemini API Key", key="api_key", type="password", help="Required for AI generation")
             st.markdown('<a href="https://aistudio.google.com/app/apikey" target="_blank" class="api-helper">Get your free API Key here →</a>', unsafe_allow_html=True)
 
@@ -322,11 +335,11 @@ else:
         # --- STEP 2: STRATEGY ---
         elif st.session_state.step == 2:
             st.markdown("<h2>The Conflict.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Great brands aren\'t just "better", they are different. To be different, you must stand against something.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">To be different, you must stand against something.</div>', unsafe_allow_html=True)
             
-            st.text_input("The Enemy", key="enemy", placeholder="e.g. Complicated Software, Boring Food", help="What frustrates your customers about the status quo?")
-            st.text_input("Origin Story", key="origin", placeholder="How did it start?", help="One sentence on why you started.")
-            st.text_input("Value Proposition", key="one_thing", placeholder="The one thing you do best", help="If you could only say one thing, what would it be?")
+            st.text_input("The Enemy", key="enemy", placeholder="e.g. Complexity", help="What frustrates your customers?")
+            st.text_input("Origin Story", key="origin", placeholder="How did it start?")
+            st.text_input("Value Proposition", key="one_thing", placeholder="The one thing you do best")
             
             st.write("")
             col_a, col_b = st.columns([1,3])
@@ -340,11 +353,11 @@ else:
         # --- STEP 3: IDENTITY ---
         elif st.session_state.step == 3:
             st.markdown("<h2>The Persona.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">People don\'t buy from corporations, they buy from people. We define the human characteristics of your brand here.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">People buy from people. Let\'s define the character.</div>', unsafe_allow_html=True)
             
-            st.selectbox("Archetype", ["The Creator", "The Sage", "The Ruler", "The Outlaw", "The Hero", "The Magician"], key="archetype", help="The primary character role your brand plays in the customer's life.")
-            st.selectbox("Aesthetic Style", ["Swiss Minimalist", "Neo-Brutalist", "Luxury Serif", "Tech Modern", "Warm & Organic"], key="style", help="The visual vibe of the brand.")
-            st.text_input("Voice Reference", key="voice", placeholder="e.g. Steve Jobs meets Tony Stark", help="If your brand was a celebrity, who would it be?")
+            st.selectbox("Archetype", ["The Creator", "The Sage", "The Ruler", "The Outlaw", "The Hero", "The Magician", "The Caregiver"], key="archetype")
+            st.selectbox("Aesthetic Style", ["Swiss Minimalist", "Neo-Brutalist", "Luxury Serif", "Tech Modern", "Warm & Organic"], key="style")
+            st.text_input("Voice Reference", key="voice", placeholder="e.g. Steve Jobs meets Tony Stark")
             
             st.write("")
             col_a, col_b = st.columns([1,3])
@@ -358,7 +371,7 @@ else:
         # --- STEP 4: CHECKOUT ---
         elif st.session_state.step == 4:
             st.markdown("<h2>Acquisition.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Unlock the intelligence engine to generate your comprehensive Brand Bible.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Unlock the intelligence engine.</div>', unsafe_allow_html=True)
             
             st.markdown("""
             <div style="background: #f5f5f7; padding: 24px; border-radius: 16px; margin-bottom: 24px;">
@@ -374,7 +387,6 @@ else:
                         time.sleep(1.5)
                         st.session_state.payment_status = True
                         st.rerun()
-                
                 st.write("")
                 st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
                 if st.button("Back"): prev_step(); st.rerun()
@@ -391,56 +403,54 @@ else:
             if not st.session_state.generated_bible:
                 genai.configure(api_key=st.session_state.api_key)
                 
-                # Dynamic Progress Bar
-                progress_text = "Connecting to Neural Engine..."
-                my_bar = st.progress(0, text=progress_text)
-                
-                time.sleep(0.5)
-                my_bar.progress(20, text="Analyzing Market Context...")
-                time.sleep(0.5)
-                my_bar.progress(40, text="Drafting Manifesto...")
-                
-                prompt = f"""
-                Role: Expert Brand Strategist.
-                Client: {st.session_state.company_name} ({st.session_state.industry}).
-                Inputs: Enemy={st.session_state.enemy}, Origin={st.session_state.origin}, Value={st.session_state.one_thing},
-                Archetype={st.session_state.archetype}, Style={st.session_state.style}, Voice={st.session_state.voice}.
-                
-                Generate Brand Bible (Markdown):
-                # {st.session_state.company_name.upper()}
-                ## 1. MANIFESTO
-                ## 2. STRATEGY (Enemy, Insight, Position)
-                ## 3. VERBAL IDENTITY (Voice, Tone, Taglines)
-                ## 4. VISUAL DIRECTION (Color, Type, Imagery)
-                """
+                # Dynamic Status
+                status = st.empty()
+                status.info("Initializing Neural Engine...")
                 
                 try:
-                    my_bar.progress(60, text="Synthesizing Visual Direction...")
+                    # PROMPT CONSTRUCTION
+                    prompt = f"""
+                    Role: Expert Brand Strategist.
+                    Client: {st.session_state.company_name} ({st.session_state.industry}).
+                    Inputs: Enemy={st.session_state.enemy}, Origin={st.session_state.origin}, Value={st.session_state.one_thing},
+                    Archetype={st.session_state.archetype}, Style={st.session_state.style}, Voice={st.session_state.voice}.
+                    
+                    Generate Brand Bible (Markdown). Do NOT use complex Unicode characters.
+                    Structure:
+                    # {st.session_state.company_name.upper()}
+                    ## 1. MANIFESTO
+                    ## 2. STRATEGY (Enemy, Insight, Position)
+                    ## 3. VERBAL IDENTITY (Voice, Tone, Taglines)
+                    ## 4. VISUAL DIRECTION (Color, Type, Imagery)
+                    """
+                    
+                    status.info("Generating Strategy...")
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     
-                    my_bar.progress(90, text="Finalizing PDF...")
-                    st.session_state.generated_bible = response.text
-                    my_bar.empty()
-                    st.rerun()
-                    
+                    if response.text:
+                        st.session_state.generated_bible = response.text
+                        status.empty()
+                        st.rerun()
+                    else:
+                        st.error("The AI returned an empty response. Please try again.")
+
                 except Exception as e:
-                    st.error(f"Generation Error: {e}")
-                    st.error("Please check your API Key and try again.")
+                    st.error(f"Generation Error: {str(e)}")
+                    st.warning("Ensure your API Key is correct and has access to Gemini.")
             
             if st.session_state.generated_bible:
-                # PDF Generator
-                def create_pdf(text):
-                    class PDF(FPDF):
-                        def header(self):
-                            self.set_font('Arial', 'B', 10)
-                            self.cell(0, 10, 'STRATEGIC DOCUMENT', 0, 1, 'C')
-                    pdf = PDF(); pdf.add_page(); pdf.set_font("Arial", size=11)
-                    pdf.multi_cell(0, 5, text.encode('latin-1', 'ignore').decode('latin-1')) 
-                    return pdf.output(dest='S').encode('latin-1')
-
-                pdf_data = create_pdf(st.session_state.generated_bible)
-                st.download_button("Download PDF", pdf_data, "Brand_Bible.pdf", "application/pdf")
+                st.success("Strategy Generated Successfully.")
+                
+                # Safe PDF Generation
+                pdf_bytes = create_pdf(st.session_state.generated_bible, st.session_state.company_name)
+                
+                st.download_button(
+                    label="Download PDF Report",
+                    data=pdf_bytes,
+                    file_name="Brand_Bible.pdf",
+                    mime="application/pdf"
+                )
                 
                 st.write("")
                 st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
@@ -451,7 +461,6 @@ else:
         st.markdown('</div>', unsafe_allow_html=True) # End padding div
         
     with c_right:
-        # Visual Column with Object-Fit Image
         st.markdown(f"""
         <div style="
             height: 100%; 
