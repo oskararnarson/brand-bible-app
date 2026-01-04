@@ -10,108 +10,143 @@ import time
 # CONFIGURATION
 # -----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="BRAND BIBLE PRO",
-    page_icon="💥",
+    page_title="BRAND BIBLE | ATELIER",
+    page_icon="⚜️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # -----------------------------------------------------------------------------
-# NEO-BRUTALIST CSS (BOLD, DISTINCT, POP ART)
+# LUXURY MINIMALIST CSS
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
-    /* IMPORT BOLD FONTS */
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;700&display=swap');
+    /* IMPORT LUXURY FONTS */
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Lato:wght@300;400&display=swap');
     
+    :root {
+        --primary: #1A1A1A;
+        --accent: #D4AF37; /* Gold */
+        --bg: #FAFAFA;
+        --text: #333333;
+    }
+
     html, body, [class*="css"] {
-        font-family: 'Space Grotesk', sans-serif;
-        color: #000;
+        font-family: 'Lato', sans-serif;
+        font-weight: 300;
+        color: var(--text);
+        background-color: var(--bg);
     }
 
-    /* MAIN BACKGROUND */
+    /* FORCE HIDE SIDEBAR & HEADER */
+    section[data-testid="stSidebar"] { display: none !important; }
+    header { visibility: hidden !important; }
+    footer { visibility: hidden !important; }
+    
+    /* MAIN CONTAINER */
     .stApp {
-        background-color: #FFFCF2; /* Warm Paper Color */
-        background-image: radial-gradient(#000 1px, transparent 1px);
-        background-size: 20px 20px; /* Dot pattern to prove it loaded */
+        background-color: var(--bg);
     }
 
-    /* HIDE DEFAULT HEADER */
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-
-    /* INPUT FIELDS - HARD BORDERS */
-    .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
-        background-color: #fff !important;
-        border: 3px solid #000 !important;
-        border-radius: 0px !important;
-        box-shadow: 4px 4px 0px #000 !important;
-        color: #000 !important;
-        font-weight: 600;
+    /* TYPOGRAPHY */
+    h1, h2, h3 {
+        font-family: 'Playfair Display', serif !important;
+        color: var(--primary) !important;
+        font-weight: 400 !important;
+        letter-spacing: -0.5px;
     }
     
-    /* SIDEBAR - BOLD */
-    section[data-testid="stSidebar"] {
-        background-color: #fff;
-        border-right: 3px solid #000;
-    }
-    
-    /* BUTTONS - POP ART STYLE */
-    div.stButton > button {
-        background-color: #FF9F1C; /* Bright Orange */
+    .hero-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 4rem;
+        text-align: center;
+        margin-top: 2rem;
+        margin-bottom: 0.5rem;
         color: #000;
-        border: 3px solid #000;
-        border-radius: 0px;
-        font-weight: 800;
+    }
+    
+    .hero-sub {
+        text-align: center;
+        font-family: 'Lato', sans-serif;
+        font-size: 0.9rem;
+        color: #666;
+        letter-spacing: 3px;
         text-transform: uppercase;
-        box-shadow: 5px 5px 0px #000;
-        transition: all 0.1s;
+        margin-bottom: 4rem;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 2rem;
+        width: 60%;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    /* INPUTS - MINIMALIST 'GHOST' STYLE */
+    .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+        background-color: transparent !important;
+        border: none !important;
+        border-bottom: 1px solid #ccc !important;
+        border-radius: 0px !important;
+        padding: 10px 0px !important;
+        font-family: 'Lato', sans-serif;
+        font-size: 15px;
+        transition: border-color 0.3s;
+    }
+    .stTextInput input:focus, .stTextArea textarea:focus {
+        border-bottom: 1px solid var(--primary) !important;
+        box-shadow: none !important;
+    }
+    /* Hide label usually, but for accessibility we keep it small */
+    .stMarkdown label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #999;
+    }
+
+    /* BUTTONS - ELEGANT EDITORIAL */
+    div.stButton > button {
+        background-color: var(--primary);
+        color: #fff;
+        border: none;
+        border-radius: 0px;
+        padding: 1rem 2rem;
+        font-family: 'Lato', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 11px;
+        font-weight: 400;
+        transition: all 0.4s ease;
+        margin-top: 20px;
+        width: 100%;
     }
     div.stButton > button:hover {
-        transform: translate(-2px, -2px);
-        box-shadow: 7px 7px 0px #000;
-        background-color: #FFBF69;
-        color: #000;
-        border-color: #000;
-    }
-    div.stButton > button:active {
-        transform: translate(2px, 2px);
-        box-shadow: 1px 1px 0px #000;
-    }
-
-    /* HERO SECTION */
-    .hero-box {
-        background-color: #2EC4B6; /* Tiffany Blue */
-        border: 4px solid #000;
-        box-shadow: 8px 8px 0px #000;
-        padding: 3rem;
-        margin-bottom: 3rem;
-    }
-    .hero-title {
-        font-size: 4rem;
-        font-weight: 900;
-        text-transform: uppercase;
-        line-height: 0.9;
-        margin-bottom: 1rem;
-        color: #fff;
-        text-shadow: 4px 4px 0px #000;
-    }
-
-    /* CARDS */
-    .feature-card {
-        background: #fff;
-        border: 3px solid #000;
-        padding: 1.5rem;
-        margin-bottom: 1rem;
-        box-shadow: 6px 6px 0px #000;
+        background-color: #444;
+        letter-spacing: 3px;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.1);
     }
     
-    /* ACCORDIONS */
+    /* CARDS/PANELS */
+    .glass-panel {
+        background: #fff;
+        padding: 40px;
+        box-shadow: 0 20px 40px -10px rgba(0,0,0,0.03);
+        border: 1px solid rgba(0,0,0,0.02);
+        margin-bottom: 2rem;
+    }
+    
+    /* EXPANDERS - CLEAN */
     .stExpander {
-        border: 3px solid #000 !important;
-        border-radius: 0px !important;
-        box-shadow: 4px 4px 0px #000 !important;
-        background-color: #fff !important;
+        border: none !important;
+        box-shadow: none !important;
+        background-color: transparent !important;
+        border-bottom: 1px solid #eee !important;
+    }
+    .streamlit-expanderHeader {
+        font-family: 'Playfair Display', serif;
+        font-size: 1.1rem;
+        color: #333;
+        background-color: transparent !important;
+        padding-left: 0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -145,44 +180,41 @@ def scrape_website_text(url):
 def create_pdf(content, company_name):
     class PDF(FPDF):
         def header(self):
-            self.set_font('Arial', 'B', 16)
-            self.cell(0, 10, f'{company_name.upper()} // BRAND BIBLE', 0, 1, 'C')
-            self.ln(5)
-            self.set_line_width(1)
-            self.line(10, 25, 200, 25)
+            self.set_font('Times', '', 10)
+            self.set_text_color(100, 100, 100)
+            self.cell(0, 10, f'EST. 2024  |  {company_name.upper()}  |  STRATEGIC DOCUMENT', 0, 1, 'C')
             self.ln(10)
         def footer(self):
-            self.set_y(-15)
-            self.set_font('Arial', 'B', 8)
-            self.cell(0, 10, 'GENERATED BY STRATEGY ENGINE', 0, 0, 'C')
+            self.set_y(-20)
+            self.set_font('Times', 'I', 8)
+            self.set_text_color(150, 150, 150)
+            self.cell(0, 10, 'CONFIDENTIAL', 0, 0, 'C')
 
     pdf = PDF()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=20)
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_auto_page_break(auto=True, margin=25)
     
     lines = content.split('\n')
     for line in lines:
         s_line = sanitize_text_for_pdf(line)
         if line.startswith('###') or line.startswith('**'):
-            pdf.ln(5)
-            pdf.set_font("Arial", 'B', 12)
-            pdf.multi_cell(0, 8, s_line.replace('#', '').replace('*', '').strip())
-        elif line.startswith('##'):
-            pdf.ln(10)
-            pdf.set_font("Arial", 'B', 20)
-            pdf.set_fill_color(0, 0, 0)
-            pdf.set_text_color(255, 255, 255)
-            pdf.cell(0, 12, f"  {s_line.replace('#', '').strip().upper()}  ", 0, 1, 'L', True)
+            pdf.ln(8)
+            pdf.set_font("Times", 'B', 11)
             pdf.set_text_color(0, 0, 0)
-            pdf.ln(5)
-        elif line.startswith('#'):
+            pdf.multi_cell(0, 6, s_line.replace('#', '').replace('*', '').strip().upper())
+        elif line.startswith('##'):
             pdf.add_page()
-            pdf.set_font("Arial", 'B', 30)
-            pdf.multi_cell(0, 20, s_line.replace('#', '').strip().upper(), align='C')
+            pdf.set_font("Times", '', 24)
+            pdf.set_text_color(0, 0, 0)
+            pdf.multi_cell(0, 15, s_line.replace('#', '').strip())
             pdf.ln(10)
+        elif line.startswith('#'):
+            pdf.set_font("Times", '', 40)
+            pdf.multi_cell(0, 20, s_line.replace('#', '').strip(), align='C')
+            pdf.ln(20)
         else:
-            pdf.set_font("Arial", size=11)
+            pdf.set_font("Times", '', 11)
+            pdf.set_text_color(50, 50, 50)
             pdf.multi_cell(0, 6, s_line)
             
     return pdf.output(dest='S').encode('latin-1')
@@ -194,97 +226,102 @@ if 'payment_status' not in st.session_state: st.session_state['payment_status'] 
 if 'generated_bible' not in st.session_state: st.session_state['generated_bible'] = None
 
 # -----------------------------------------------------------------------------
-# SIDEBAR
-# -----------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("## ⚙️ CONTROLS")
-    api_key = st.text_input("GOOGLE AI KEY", type="password")
-    
-    with st.expander("1. WHO ARE YOU?", expanded=True):
-        company_name = st.text_input("COMPANY NAME", "Acme Corp")
-        industry = st.text_input("INDUSTRY", "Tech")
-        url = st.text_input("WEBSITE URL")
-
-    with st.expander("2. THE STRATEGY"):
-        enemy = st.text_input("THE ENEMY", "Boredom")
-        origin_story = st.text_area("ORIGIN STORY")
-        one_thing = st.text_input("ONE THING")
-
-    with st.expander("3. THE VIBE"):
-        fears_desires = st.text_area("FEARS / DESIRES")
-        archetype = st.selectbox("ARCHETYPE", ["Rebel", "Magician", "Hero", "Lover", "Sage", "Creator", "Ruler"])
-        feeling = st.text_input("FEELING")
-        aesthetic = st.selectbox("STYLE", ["Swiss", "Brutalist", "Luxury", "Tech"])
-        voice_match = st.text_input("VOICE MATCH")
-
-# -----------------------------------------------------------------------------
 # MAIN LAYOUT
 # -----------------------------------------------------------------------------
 
 # HERO
 st.markdown("""
-<div class="hero-box">
-    <div class="hero-title">Brand Bible<br>Generator</div>
-    <div style="font-size: 1.5rem; font-weight: 700;">
-        Create a world-class identity system in 10 seconds.
-    </div>
-</div>
+<div class="hero-title">The Brand Bible.</div>
+<div class="hero-sub">The Strategic Atelier for Modern Business</div>
 """, unsafe_allow_html=True)
 
-col1, col2 = st.columns([2, 1], gap="large")
+# LAYOUT: LEFT (INPUTS) | RIGHT (OUTPUT/ACTION)
+col_inputs, col_action = st.columns([1.2, 1], gap="large")
 
-with col1:
+with col_inputs:
+    st.markdown("### I. Configuration")
+    
+    with st.expander("The Entity", expanded=True):
+        api_key = st.text_input("Gemini API Key", type="password")
+        company_name = st.text_input("Company Name")
+        industry = st.text_input("Industry")
+        url = st.text_input("Digital Presence (URL)")
+
+    with st.expander("The Strategy"):
+        enemy = st.text_input("The Adversary (Enemy)")
+        origin_story = st.text_area("Origin Story")
+        one_thing = st.text_input("Singular Value Proposition")
+
+    with st.expander("The Psychology"):
+        fears_desires = st.text_area("Client Fears & Desires")
+        archetype = st.selectbox("Archetype", ["The Sage", "The Ruler", "The Creator", "The Outlaw", "The Magician", "The Hero", "The Lover"])
+        feeling = st.text_input("Emotive Response")
+
+    with st.expander("The Aesthetic"):
+        aesthetic = st.selectbox("Visual Direction", ["Minimalist / Swiss", "Editorial / Serif", "Industrial / Brutalist", "Warm / Organic"])
+        voice_match = st.text_input("Voice Persona")
+        taboo_words = st.text_input("Restricted Vocabulary")
+
+with col_action:
+    st.markdown("### II. Acquisition")
+    
+    st.markdown("""
+    <div class="glass-panel">
+        <h3 style="margin-top:0;">The Deliverable</h3>
+        <p style="font-size: 14px; line-height: 1.6; color: #666;">
+            A comprehensive strategic document defining the North Star, 
+            verbal identity, and visual direction of the entity. 
+            Delivered in professional PDF format.
+        </p>
+        <br>
+    """, unsafe_allow_html=True)
+
     if not st.session_state['payment_status']:
         st.markdown("""
-        <div class="feature-card">
-            <h3>📂 1. The North Star</h3>
-            <p>Mission. Vision. Manifesto.</p>
-        </div>
-        <div class="feature-card">
-            <h3>🗣️ 2. The Voice</h3>
-            <p>Taglines. Hooks. Vocabulary.</p>
-        </div>
-        <div class="feature-card">
-            <h3>🎨 3. The Look</h3>
-            <p>Logo briefs. Typography. Art Direction.</p>
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #eee; padding-top: 20px;">
+                <span style="font-family: 'Playfair Display'; font-size: 1.5rem;">$99.00</span>
+                <span style="font-size: 10px; color: #999; letter-spacing: 1px;">SECURE CHECKOUT</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-
-        st.markdown("### 🔓 UNLOCK ACCESS")
-        pay_btn = st.button("PROCESS PAYMENT ($99)", type="primary")
-
-        if pay_btn:
-            with st.spinner("VERIFYING..."):
-                time.sleep(1)
+        
+        if st.button("Purchase Access"):
+            with st.spinner("Processing..."):
+                time.sleep(1.5)
                 st.session_state['payment_status'] = True
                 st.rerun()
-
     else:
-        st.success("ACCESS UNLOCKED.")
-        if st.button("GENERATE BIBLE"):
+        st.markdown("""
+            <div style="border-top: 1px solid #eee; padding-top: 20px;">
+                <span style="font-size: 12px; color: #D4AF37; letter-spacing: 1px;">● ACCESS GRANTED</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Generate Strategy"):
             if not api_key:
-                st.error("MISSING API KEY")
+                st.error("Authentication Required: Please provide API Key in Configuration.")
             else:
                 genai.configure(api_key=api_key)
-                with st.spinner("BUILDING STRATEGY..."):
+                with st.spinner("Synthesizing..."):
                     web_context = ""
                     if url:
                         web_data = scrape_website_text(url)
-                        if web_data: web_context = f"WEB DATA: {web_data}"
+                        if web_data: web_context = f"DIGITAL CONTEXT: {web_data}"
 
                     prompt = f"""
-                    Role: Expert Brand Strategist.
-                    Task: Create a Brand Bible for {company_name}.
-                    Inputs: {industry}, Enemy: {enemy}, Origin: {origin_story}, Value: {one_thing}, 
-                    Psychology: {fears_desires}, Archetype: {archetype}, Style: {aesthetic}.
-                    {web_context}
+                    Act as a high-end Brand Strategist.
+                    Client: {company_name}. Industry: {industry}.
+                    Context: {web_context}
+                    Strategy: Enemy={enemy}, Origin={origin_story}, Value={one_thing}.
+                    Psych: Fears/Desires={fears_desires}, Archetype={archetype}, Feeling={feeling}.
+                    Style: {aesthetic}, Voice={voice_match}, Avoid={taboo_words}.
                     
-                    Sections (Markdown):
-                    # BRAND BIBLE: {company_name}
-                    ## 1. MANIFESTO
-                    ## 2. PERSONA
-                    ## 3. VERBAL IDENTITY
-                    ## 4. VISUAL IDENTITY
+                    Create a Brand Bible (Markdown).
+                    # {company_name.upper()}
+                    ## MANIFESTO
+                    ## VERBAL IDENTITY
+                    ## VISUAL DIRECTION
                     """
                     try:
                         model = genai.GenerativeModel('gemini-1.5-flash')
@@ -294,18 +331,7 @@ with col1:
                         st.error(f"Error: {e}")
 
         if st.session_state['generated_bible']:
+            st.divider()
             st.markdown(st.session_state['generated_bible'])
             pdf = create_pdf(st.session_state['generated_bible'], company_name)
-            st.download_button("DOWNLOAD PDF", pdf, "bible.pdf", "application/pdf")
-
-with col2:
-    if not st.session_state['payment_status']:
-        st.markdown("""
-        <div style="background: #CBF3F0; border: 3px solid #000; padding: 20px; box-shadow: 6px 6px 0px #000;">
-            <strong>RECENT JOBS</strong>
-            <hr style="border-top: 2px solid #000;">
-            <p>Nike (Rebrand)</p>
-            <p>Liquid Death (Strategy)</p>
-            <p>Linear (Voice)</p>
-        </div>
-        """, unsafe_allow_html=True)
+            st.download_button("Download PDF Document", pdf, "brand_bible.pdf", "application/pdf")
