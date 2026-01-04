@@ -16,16 +16,25 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# HIGH-END CSS OVERHAUL
+# HIGH-END CSS OVERHAUL (DARK MODE)
 st.markdown("""
 <style>
     /* IMPORT FONTS */
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
     
-    /* GLOBAL STYLES */
+    /* GLOBAL STYLES - DARK THEME */
+    .stApp {
+        background-color: #000000;
+        color: #ffffff;
+    }
+    
     html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
-        color: #1a1a1a;
+    }
+    
+    /* TEXT OVERRIDES */
+    h1, h2, h3, h4, h5, h6, p, li, .stMarkdown {
+        color: #ffffff !important;
     }
     
     /* HIDE STREAMLIT ELEMENTS */
@@ -35,81 +44,79 @@ st.markdown("""
     
     /* CUSTOM HERO SECTION */
     .hero-container {
-        padding: 2rem 0 3rem 0;
-        border-bottom: 1px solid #e0e0e0;
+        padding: 4rem 0 3rem 0;
+        border-bottom: 1px solid #333;
         margin-bottom: 2rem;
     }
     .hero-title {
-        font-size: 3.5rem;
+        font-size: 4rem;
         font-weight: 800;
         letter-spacing: -2px;
-        line-height: 1.1;
-        color: #000;
-        margin-bottom: 0.5rem;
+        line-height: 1;
+        color: #ffffff;
+        margin-bottom: 1rem;
     }
     .hero-subtitle {
         font-size: 1.2rem;
-        font-weight: 400;
-        color: #666;
+        font-weight: 300;
+        color: #888;
         max-width: 600px;
     }
     
     /* SIDEBAR REFINEMENT */
     section[data-testid="stSidebar"] {
-        background-color: #f7f7f7;
-        border-right: 1px solid #e0e0e0;
+        background-color: #111;
+        border-right: 1px solid #333;
     }
     section[data-testid="stSidebar"] .block-container {
         padding-top: 3rem;
     }
     
-    /* FORM ELEMENTS */
+    /* FORM ELEMENTS - DARK */
     .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
-        border-radius: 4px;
-        border: 1px solid #e0e0e0;
-        background-color: #fff;
-        color: #000;
+        border-radius: 0px;
+        border: 1px solid #333;
+        background-color: #000;
+        color: #fff;
         padding: 0.5rem;
     }
     .stTextInput input:focus, .stTextArea textarea:focus {
-        border-color: #000;
+        border-color: #fff;
         box-shadow: none;
+    }
+    
+    /* ACCORDIONS */
+    .stExpander {
+        border: 1px solid #333;
+        border-radius: 0px;
+        background-color: #000;
     }
     
     /* BUTTONS */
     div.stButton > button {
-        background-color: #000;
-        color: #fff;
+        background-color: #fff;
+        color: #000;
         border-radius: 0px;
-        border: none;
+        border: 1px solid #fff;
         padding: 0.75rem 1.5rem;
-        font-weight: 600;
+        font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 1px;
         transition: all 0.3s ease;
         width: 100%;
     }
     div.stButton > button:hover {
-        background-color: #333;
-        color: #fff;
-        border: none;
-    }
-    div.stButton > button:active {
         background-color: #000;
         color: #fff;
-    }
-    
-    /* PAYMENT BUTTON SPECIFIC */
-    div[data-testid="stVerticalBlock"] > div > div[data-testid="stButton"] > button {
-        background-color: #000; 
+        border: 1px solid #fff;
     }
     
     /* CARDS/CONTAINERS */
     .feature-card {
-        background: white;
+        background: #111;
         padding: 2rem;
-        border: 1px solid #eee;
-        border-radius: 8px;
+        border: 1px solid #333;
+        border-radius: 0px;
         margin-bottom: 1rem;
     }
     
@@ -200,8 +207,8 @@ if 'generated_bible' not in st.session_state: st.session_state['generated_bible'
 # SIDEBAR: THE CONFIGURATOR
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("<h3 style='margin-bottom:0px; letter-spacing: -1px;'>⚫ CONFIGURATOR</h3>", unsafe_allow_html=True)
-    st.markdown("<p style='font-size: 12px; color: #888; margin-bottom: 2rem;'>Define the parameters of the brand.</p>", unsafe_allow_html=True)
+    st.markdown("<h3 style='margin-bottom:0px; letter-spacing: -1px; color: #fff;'>⚫ CONFIGURATOR</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 12px; color: #666; margin-bottom: 2rem;'>Define the parameters of the brand.</p>", unsafe_allow_html=True)
     
     api_key = st.text_input("Google AI Key", type="password", help="Enter your Gemini API Key")
     
@@ -247,15 +254,15 @@ with col1:
         st.markdown("### The Deliverable")
         st.markdown("""
         <div class="feature-card">
-            <strong>01. The North Star</strong><br>
+            <strong style="color:white;">01. The North Star</strong><br>
             <span style="color:#666; font-size: 14px;">Mission, Vision, and a rallying Manifesto.</span>
         </div>
         <div class="feature-card">
-            <strong>02. The Verbal Identity</strong><br>
+            <strong style="color:white;">02. The Verbal Identity</strong><br>
             <span style="color:#666; font-size: 14px;">Voice guidelines, Taglines, and Hook points.</span>
         </div>
         <div class="feature-card">
-            <strong>03. The Visual Direction</strong><br>
+            <strong style="color:white;">03. The Visual Direction</strong><br>
             <span style="color:#666; font-size: 14px;">Art Direction briefs for Designers (Logo, Type, Photo).</span>
         </div>
         """, unsafe_allow_html=True)
@@ -330,10 +337,10 @@ with col1:
 with col2:
     if not st.session_state['payment_status']:
         st.markdown("""
-        <div style="background: #f7f7f7; padding: 1.5rem; border-radius: 8px;">
+        <div style="background: #111; padding: 1.5rem; border: 1px solid #333; border-radius: 0px;">
             <div style="font-size: 12px; font-weight: 600; margin-bottom: 10px; color: #888;">RECENT GENERATIONS</div>
-            <div style="margin-bottom: 10px;"><strong>Oura Ring</strong><br><span style="color: #666; font-size: 12px;">Tech / Wellness</span></div>
-            <div style="margin-bottom: 10px;"><strong>Liquid Death</strong><br><span style="color: #666; font-size: 12px;">Beverage / FMCG</span></div>
-            <div><strong>MSCHF</strong><br><span style="color: #666; font-size: 12px;">Art / eCommerce</span></div>
+            <div style="margin-bottom: 10px; color: white;"><strong>Oura Ring</strong><br><span style="color: #666; font-size: 12px;">Tech / Wellness</span></div>
+            <div style="margin-bottom: 10px; color: white;"><strong>Liquid Death</strong><br><span style="color: #666; font-size: 12px;">Beverage / FMCG</span></div>
+            <div style="color: white;"><strong>MSCHF</strong><br><span style="color: #666; font-size: 12px;">Art / eCommerce</span></div>
         </div>
         """, unsafe_allow_html=True)
