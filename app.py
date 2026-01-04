@@ -1,5 +1,5 @@
 import streamlit as st
-import openai
+import google.generativeai as genai
 from fpdf import FPDF
 import requests
 from bs4 import BeautifulSoup
@@ -166,7 +166,7 @@ with st.sidebar:
     st.caption("Strategic Intelligence Engine")
     
     # API Key Input (Critical for functionality)
-    api_key = st.text_input("OpenAI API Key", type="password", help="Required to activate the Brain.")
+    api_key = st.text_input("Google AI API Key", type="password", help="Required to activate the Brain (Gemini).")
     
     st.divider()
     
@@ -246,9 +246,10 @@ with col1:
         # Generation Trigger
         if st.button("Generate Brand Bible", type="primary"):
             if not api_key:
-                st.error("Please enter your OpenAI API Key in the sidebar to proceed.")
+                st.error("Please enter your Google AI API Key in the sidebar to proceed.")
             else:
-                client = openai.OpenAI(api_key=api_key)
+                # Configure Google AI
+                genai.configure(api_key=api_key)
                 
                 with st.spinner("Analyzing market data... scraping URL... synthesizing strategy..."):
                     
@@ -292,16 +293,15 @@ with col1:
                     """
                     
                     try:
-                        response = client.chat.completions.create(
-                            model="gpt-4o", # Defaulting to 4o, fallback to 3.5-turbo if needed
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": user_prompt}
-                            ],
-                            temperature=0.7
-                        )
+                        # Initialize Model (Gemini 1.5 Flash is great for speed/cost)
+                        model = genai.GenerativeModel('gemini-1.5-flash')
                         
-                        st.session_state['generated_bible'] = response.choices[0].message.content
+                        # Combine system instruction with user prompt
+                        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+                        
+                        response = model.generate_content(full_prompt)
+                        
+                        st.session_state['generated_bible'] = response.text
                         
                     except Exception as e:
                         st.error(f"Generation Error: {e}")
