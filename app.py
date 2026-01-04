@@ -16,7 +16,7 @@ st.set_page_config(
 )
 
 # -----------------------------------------------------------------------------
-# APPLE-GRADE CSS SYSTEM
+# APPLE-GRADE CSS SYSTEM (REFINED & READABLE)
 # -----------------------------------------------------------------------------
 st.markdown("""
 <style>
@@ -24,213 +24,157 @@ st.markdown("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
     
     html, body, [class*="css"] {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         color: #1d1d1f;
         background-color: #f5f5f7; /* Apple Light Gray Background */
     }
 
-    /* 2. REMOVE STREAMLIT CHROME */
+    /* 2. LAYOUT CORRECTION - FIXING THE "EDGES" ISSUE */
     section[data-testid="stSidebar"] { display: none !important; }
     header { visibility: hidden !important; }
     footer { visibility: hidden !important; }
+    
+    /* We restore padding to the main container so it doesn't touch edges */
     .block-container { 
-        padding-top: 0rem; 
-        padding-bottom: 0rem; 
-        padding-left: 0rem; 
-        padding-right: 0rem;
-        max-width: 100% !important;
+        padding-top: 2rem; 
+        padding-bottom: 2rem; 
+        max-width: 1200px !important;
+        margin: 0 auto;
     }
 
     /* 3. ANIMATIONS */
     @keyframes fadeInUp {
-        from { opacity: 0; transform: translateY(20px); }
+        from { opacity: 0; transform: translateY(10px); }
         to { opacity: 1; transform: translateY(0); }
     }
-    @keyframes fadeIn {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
     .animate-enter {
-        animation: fadeInUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    }
-    .animate-fade {
-        animation: fadeIn 1.2s ease-in-out forwards;
+        animation: fadeInUp 0.6s ease-out forwards;
     }
 
     /* 4. LANDING PAGE HERO */
-    .hero-section {
-        height: 100vh;
-        background: radial-gradient(circle at 50% 50%, #ffffff 0%, #f2f2f5 100%);
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+    .hero-container {
         text-align: center;
-        padding: 40px;
+        padding: 80px 20px;
+        background: white;
+        border-radius: 24px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        margin-bottom: 40px;
     }
     .hero-eyebrow {
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
-        color: #0071e3; /* Apple Blue */
+        color: #0071e3;
         text-transform: uppercase;
-        letter-spacing: 2px;
-        margin-bottom: 16px;
+        letter-spacing: 1.5px;
+        margin-bottom: 12px;
     }
     .hero-title {
-        font-size: 64px;
-        font-weight: 600;
-        letter-spacing: -2px;
-        line-height: 1.05;
-        background: -webkit-linear-gradient(#1d1d1f, #424245);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 24px;
-        max-width: 800px;
+        font-size: 56px;
+        font-weight: 700;
+        letter-spacing: -1.5px;
+        color: #1d1d1f;
+        margin-bottom: 20px;
+        line-height: 1.1;
     }
     .hero-subtitle {
-        font-size: 24px;
-        line-height: 1.4;
+        font-size: 21px;
+        line-height: 1.5;
         font-weight: 400;
         color: #86868b;
         max-width: 600px;
-        margin-bottom: 40px;
+        margin: 0 auto 40px auto;
     }
 
-    /* 5. APP CONTAINER (GLASS CARD) */
-    .app-wrapper {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        padding: 40px;
-        background: #fbfbfd;
-    }
-    .glass-card {
-        background: rgba(255, 255, 255, 0.85);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255, 255, 255, 0.4);
+    /* 5. APP CARD (SOLID WHITE - HIGH CONTRAST) */
+    .app-card {
+        background: #ffffff;
         border-radius: 24px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.04);
-        width: 100%;
-        max-width: 1100px;
-        min-height: 600px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.08); /* Deep, expensive shadow */
         overflow: hidden;
+        border: 1px solid rgba(0,0,0,0.05);
         display: flex;
+        min-height: 600px; /* Ensure height */
     }
-    .card-left {
-        flex: 1;
-        padding: 60px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }
-    .card-right {
-        flex: 1;
-        background-color: #f0f0f2;
-        position: relative;
-        overflow: hidden;
-    }
-    .card-right img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        transition: transform 1.5s ease;
-    }
-    .card-right:hover img {
-        transform: scale(1.05);
-    }
-
-    /* 6. FORM ELEMENTS (Clean, Floating) */
+    
+    /* 6. FORM INPUTS (READABLE) */
+    /* We force a white background and grey border for max clarity */
     .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
-        background-color: rgba(255,255,255,0.8) !important;
+        background-color: #ffffff !important;
         border: 1px solid #d2d2d7 !important;
         border-radius: 12px !important;
-        padding: 16px !important;
-        font-size: 17px !important;
+        padding: 12px 16px !important;
+        font-size: 16px !important;
         color: #1d1d1f !important;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.02) !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
         transition: all 0.2s ease;
     }
     .stTextInput input:focus, .stTextArea textarea:focus {
         border-color: #0071e3 !important;
         box-shadow: 0 0 0 4px rgba(0,113,227,0.15) !important;
-        background-color: #fff !important;
     }
     label {
         font-size: 12px !important;
         font-weight: 600 !important;
         color: #86868b !important;
-        margin-bottom: 8px !important;
+        margin-bottom: 6px !important;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
 
-    /* 7. BUTTONS (The 'Buy' Button) */
+    /* 7. BUTTONS */
     div.stButton > button {
-        background-color: #0071e3; /* Apple Blue */
+        background-color: #0071e3;
         color: white;
-        font-size: 17px;
+        font-size: 16px;
         font-weight: 500;
-        padding: 14px 30px;
-        border-radius: 980px; /* Pill shape */
+        padding: 12px 30px;
+        border-radius: 999px;
         border: none;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        width: auto;
-        min-width: 160px;
-        box-shadow: 0 4px 6px rgba(0,113,227,0.2);
+        box-shadow: 0 2px 4px rgba(0,113,227,0.3);
+        transition: transform 0.1s ease;
     }
     div.stButton > button:hover {
         background-color: #0077ED;
         transform: scale(1.02);
-        box-shadow: 0 6px 12px rgba(0,113,227,0.3);
-    }
-    div.stButton > button:active {
-        transform: scale(0.98);
     }
     
-    /* Secondary Button Style */
     .secondary-btn button {
-        background-color: #e8e8ed !important;
+        background-color: #f5f5f7 !important;
         color: #1d1d1f !important;
         box-shadow: none !important;
     }
-    .secondary-btn button:hover {
-        background-color: #d2d2d7 !important;
-    }
 
-    /* 8. TYPOGRAPHY IN APP */
+    /* 8. TYPOGRAPHY & HELPERS */
     h2 {
-        font-size: 40px;
+        font-size: 32px;
         font-weight: 600;
-        letter-spacing: -1px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
         color: #1d1d1f;
+        letter-spacing: -0.5px;
     }
     .step-desc {
-        font-size: 19px;
-        line-height: 1.5;
-        color: #86868b;
-        margin-bottom: 40px;
-        font-weight: 400;
+        font-size: 17px;
+        color: #6e6e73;
+        margin-bottom: 32px;
     }
-    .progress-dots {
+    .api-helper {
+        font-size: 12px;
+        color: #0071e3;
+        margin-top: -10px;
+        margin-bottom: 20px;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .api-helper:hover { text-decoration: underline; }
+    
+    /* 9. PROGRESS */
+    .progress-bar {
         display: flex;
-        gap: 8px;
+        gap: 6px;
         margin-bottom: 30px;
     }
-    .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background-color: #d2d2d7;
-        transition: all 0.3s;
-    }
-    .dot.active {
-        background-color: #1d1d1f;
-        transform: scale(1.2);
-    }
+    .p-dot { width: 8px; height: 8px; border-radius: 50%; background: #e5e5e5; transition: 0.3s; }
+    .p-dot.active { background: #1d1d1f; transform: scale(1.2); }
 
 </style>
 """, unsafe_allow_html=True)
@@ -249,33 +193,35 @@ for k in keys:
     if k not in st.session_state: st.session_state[k] = ""
 
 # -----------------------------------------------------------------------------
-# NAVIGATION FUNCTIONS
+# NAVIGATION
 # -----------------------------------------------------------------------------
 def go_to_app(): st.session_state.page = 'app'; st.session_state.step = 1
 def next_step(): st.session_state.step += 1
 def prev_step(): st.session_state.step -= 1
 
-def generate_dots(current_step, total_steps=5):
-    html = '<div class="progress-dots">'
-    for i in range(1, total_steps + 1):
-        active = 'active' if i == current_step else ''
-        html += f'<div class="dot {active}"></div>'
+def render_progress(current):
+    html = '<div class="progress-bar">'
+    for i in range(1, 6):
+        active = 'active' if i == current else ''
+        html += f'<div class="p-dot {active}"></div>'
     html += '</div>'
     st.markdown(html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# LANDING PAGE
+# PAGE 1: LANDING PAGE
 # -----------------------------------------------------------------------------
 if st.session_state.page == 'landing':
     st.markdown("""
-    <div class="hero-section animate-fade">
+    <div class="hero-container animate-enter">
         <div class="hero-eyebrow">Strategic Intelligence</div>
         <div class="hero-title">The Operating System<br>for your Brand.</div>
-        <div class="hero-subtitle">Turn a few simple inputs into a comprehensive identity system. Strategy, Voice, and Visuals. Instantaneously.</div>
+        <div class="hero-subtitle">
+            Turn a few simple inputs into a comprehensive identity system.<br>
+            Strategy, Voice, and Visuals. Instantaneously.
+        </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # We use columns to center the button perfectly in Streamlit
     col1, col2, col3 = st.columns([1,1,1])
     with col2:
         if st.button("Begin Journey"):
@@ -283,61 +229,71 @@ if st.session_state.page == 'landing':
             st.rerun()
 
 # -----------------------------------------------------------------------------
-# WIZARD APPLICATION
+# PAGE 2: WIZARD APP
 # -----------------------------------------------------------------------------
 else:
-    # IMAGES FOR EACH STEP (High Quality Abstract/Tech)
+    # High-quality images for the right column
     step_images = {
-        1: "https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&q=80&w=1000", # Office/Structure
-        2: "https://images.unsplash.com/photo-1505506874110-6a7a69069a08?auto=format&fit=crop&q=80&w=1000", # Storm/Conflict
-        3: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?auto=format&fit=crop&q=80&w=1000", # Abstract/Identity
-        4: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&q=80&w=1000", # Lock/Secure
-        5: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=1000"  # Book/Output
+        1: "https://images.unsplash.com/photo-1497215728101-856f4ea42174?q=80&w=1000&auto=format&fit=crop", # Office
+        2: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?q=80&w=1000&auto=format&fit=crop", # Technology
+        3: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop", # Abstract
+        4: "https://images.unsplash.com/photo-1563013544-824ae1b704d3?q=80&w=1000&auto=format&fit=crop", # Money/Value
+        5: "https://images.unsplash.com/photo-1513475382585-d06e58bcb0e0?q=80&w=1000&auto=format&fit=crop"  # Creative
     }
+    current_img = step_images.get(st.session_state.step, step_images[1])
+
+    # The Card Layout
+    st.markdown('<div class="app-card animate-enter">', unsafe_allow_html=True)
     
-    current_image = step_images.get(st.session_state.step, step_images[1])
-
-    # MAIN LAYOUT: Split Screen Glass Card
-    col_ui, col_visual = st.columns([1, 1], gap="small")
-
-    # LEFT COLUMN: THE UI
-    with col_ui:
-        st.markdown('<div style="padding: 40px 20px 0px 40px;" class="animate-enter">', unsafe_allow_html=True)
-        generate_dots(st.session_state.step)
+    # We use Streamlit columns to simulate the Left/Right split inside the card
+    # Note: We can't put columns *inside* an HTML div in pure Streamlit easily, 
+    # so we overlay the layout logic.
+    
+    c_left, c_right = st.columns([1, 1], gap="large")
+    
+    with c_left:
+        st.markdown('<div style="padding: 40px;">', unsafe_allow_html=True)
+        render_progress(st.session_state.step)
         
-        # STEP 1: ENTITY
+        # --- STEP 1: ENTITY ---
         if st.session_state.step == 1:
             st.markdown("<h2>The Foundation.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Let’s establish the core parameters of the entity.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Establish the core parameters of the entity.</div>', unsafe_allow_html=True)
             
-            st.text_input("API Access Key", key="api_key", type="password")
             st.text_input("Company Name", key="company_name", placeholder="e.g. Acme Inc")
             st.text_input("Industry", key="industry", placeholder="e.g. Aerospace")
             
+            # API Key with Helper Link
+            st.text_input("Gemini API Key", key="api_key", type="password", help="Required for AI generation")
+            st.markdown('<a href="https://aistudio.google.com/app/apikey" target="_blank" class="api-helper">Get your free API Key here →</a>', unsafe_allow_html=True)
+
             st.write("")
             if st.button("Continue"):
-                if st.session_state.api_key: next_step(); st.rerun()
-                else: st.error("API Key is required to initialize the engine.")
-
-        # STEP 2: STRATEGY
+                if st.session_state.api_key and st.session_state.company_name:
+                    next_step()
+                    st.rerun()
+                else:
+                    st.warning("Please enter your Company Name and API Key.")
+        
+        # --- STEP 2: STRATEGY ---
         elif st.session_state.step == 2:
             st.markdown("<h2>The Conflict.</h2>", unsafe_allow_html=True)
             st.markdown('<div class="step-desc">Great brands solve a problem. Who is the villain?</div>', unsafe_allow_html=True)
             
-            st.text_input("The Enemy", key="enemy", placeholder="What are you fighting? (e.g. Complexity)")
+            st.text_input("The Enemy", key="enemy", placeholder="e.g. Complicated Software, Boring Food")
             st.text_input("Origin Story", key="origin", placeholder="How did it start?")
             st.text_input("Value Proposition", key="one_thing", placeholder="The one thing you do best")
             
             st.write("")
-            c1, c2 = st.columns([1, 3])
-            with c1: 
+            col_a, col_b = st.columns([1,3])
+            with col_a:
                 st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
                 if st.button("Back"): prev_step(); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            with c2: 
+            with col_b:
                 if st.button("Continue"): next_step(); st.rerun()
 
-        # STEP 3: IDENTITY
+        # --- STEP 3: IDENTITY ---
         elif st.session_state.step == 3:
             st.markdown("<h2>The Persona.</h2>", unsafe_allow_html=True)
             st.markdown('<div class="step-desc">Defining the human characteristics of the brand.</div>', unsafe_allow_html=True)
@@ -347,24 +303,24 @@ else:
             st.text_input("Voice Reference", key="voice", placeholder="e.g. Steve Jobs meets Tony Stark")
             
             st.write("")
-            c1, c2 = st.columns([1, 3])
-            with c1: 
+            col_a, col_b = st.columns([1,3])
+            with col_a:
                 st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
                 if st.button("Back"): prev_step(); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            with c2: 
-                if st.button("Finalize"): next_step(); st.rerun()
+            with col_b:
+                if st.button("Continue"): next_step(); st.rerun()
 
-        # STEP 4: PURCHASE
+        # --- STEP 4: CHECKOUT ---
         elif st.session_state.step == 4:
             st.markdown("<h2>Acquisition.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Unlock the intelligence engine to generate your strategy.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Unlock the intelligence engine.</div>', unsafe_allow_html=True)
             
             st.markdown("""
-            <div style="background: #f5f5f7; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                <div style="font-size: 12px; font-weight: 600; color: #86868b; text-transform: uppercase;">Total</div>
-                <div style="font-size: 32px; font-weight: 600; color: #1d1d1f;">$99.00</div>
-                <div style="font-size: 14px; color: #86868b; margin-top: 5px;">One-time payment. Lifetime access.</div>
+            <div style="background: #f5f5f7; padding: 24px; border-radius: 16px; margin-bottom: 24px;">
+                <div style="font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; margin-bottom: 4px;">Total Amount</div>
+                <div style="font-size: 36px; font-weight: 600; color: #1d1d1f; letter-spacing: -1px;">$99.00</div>
+                <div style="font-size: 14px; color: #86868b; margin-top: 8px;">Lifetime access to strategy generation.</div>
             </div>
             """, unsafe_allow_html=True)
             
@@ -379,16 +335,15 @@ else:
                 st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
                 if st.button("Back"): prev_step(); st.rerun()
                 st.markdown('</div>', unsafe_allow_html=True)
-            
             else:
-                st.success("Transaction verified.")
-                if st.button("Generate Bible"): next_step(); st.rerun()
+                st.success("Access Granted.")
+                if st.button("Generate Strategy"): next_step(); st.rerun()
 
-        # STEP 5: OUTPUT
+        # --- STEP 5: OUTPUT ---
         elif st.session_state.step == 5:
             st.markdown("<h2>The Bible.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Your strategic asset is ready for deployment.</div>', unsafe_allow_html=True)
-
+            st.markdown('<div class="step-desc">Your strategic asset is ready.</div>', unsafe_allow_html=True)
+            
             if not st.session_state.generated_bible:
                 genai.configure(api_key=st.session_state.api_key)
                 with st.spinner("Synthesizing Strategy..."):
@@ -414,59 +369,38 @@ else:
                         st.error(f"Error: {e}")
             
             if st.session_state.generated_bible:
-                # PDF Generation Logic
+                # PDF Generator
                 def create_pdf(text):
                     class PDF(FPDF):
                         def header(self):
                             self.set_font('Arial', 'B', 10)
                             self.cell(0, 10, 'STRATEGIC DOCUMENT', 0, 1, 'C')
                     pdf = PDF(); pdf.add_page(); pdf.set_font("Arial", size=11)
-                    # Simple text dump for stability
                     pdf.multi_cell(0, 5, text.encode('latin-1', 'ignore').decode('latin-1')) 
                     return pdf.output(dest='S').encode('latin-1')
 
                 pdf_data = create_pdf(st.session_state.generated_bible)
-                
-                st.markdown("""
-                <div style="background: #e8f3ff; border: 1px solid #0071e3; padding: 20px; border-radius: 12px; color: #0071e3; font-weight: 500; margin-bottom: 20px;">
-                    ✓ Document Generated Successfully
-                </div>
-                """, unsafe_allow_html=True)
-                
                 st.download_button("Download PDF", pdf_data, "Brand_Bible.pdf", "application/pdf")
                 
                 st.write("")
+                st.markdown('<div class="secondary-btn">', unsafe_allow_html=True)
                 if st.button("Start New Project"):
                     st.session_state.step = 1; st.session_state.generated_bible = None; st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
 
-        st.markdown('</div>', unsafe_allow_html=True) # Close padding container
-
-    # RIGHT COLUMN: THE VISUAL
-    with col_visual:
-        # We render the image in a container that fills the height
+        st.markdown('</div>', unsafe_allow_html=True) # End padding div
+        
+    with c_right:
+        # Visual Column with Object-Fit Image
         st.markdown(f"""
-        <style>
-            .visual-container {{
-                height: 600px;
-                width: 100%;
-                background-image: url('{current_image}');
-                background-size: cover;
-                background-position: center;
-                border-radius: 0px 24px 24px 0px;
-                position: relative;
-            }}
-            /* Overlay gradient */
-            .visual-overlay {{
-                position: absolute;
-                bottom: 0;
-                left: 0;
-                width: 100%;
-                height: 50%;
-                background: linear-gradient(to top, rgba(0,0,0,0.5), transparent);
-                border-radius: 0px 0px 24px 0px;
-            }}
-        </style>
-        <div class="visual-container animate-fade">
-            <div class="visual-overlay"></div>
-        </div>
+        <div style="
+            height: 100%; 
+            min-height: 600px;
+            background-image: url('{current_img}');
+            background-size: cover;
+            background-position: center;
+            border-left: 1px solid rgba(0,0,0,0.1);
+        "></div>
         """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True) # End App Card
