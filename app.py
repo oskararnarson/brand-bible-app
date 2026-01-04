@@ -84,6 +84,25 @@ st.markdown("""
         max-width: 600px;
         margin: 0 auto 40px auto;
     }
+    
+    .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        margin-top: 40px;
+        text-align: left;
+    }
+    .feature-item h3 {
+        font-size: 18px;
+        font-weight: 600;
+        color: #1d1d1f;
+        margin-bottom: 8px;
+    }
+    .feature-item p {
+        font-size: 15px;
+        color: #6e6e73;
+        line-height: 1.4;
+    }
 
     /* 5. APP CARD (SOLID WHITE - HIGH CONTRAST) */
     .app-card {
@@ -156,6 +175,7 @@ st.markdown("""
         font-size: 17px;
         color: #6e6e73;
         margin-bottom: 32px;
+        max-width: 90%;
     }
     .api-helper {
         font-size: 12px;
@@ -175,6 +195,17 @@ st.markdown("""
     }
     .p-dot { width: 8px; height: 8px; border-radius: 50%; background: #e5e5e5; transition: 0.3s; }
     .p-dot.active { background: #1d1d1f; transform: scale(1.2); }
+    
+    /* 10. GENERATION STATUS */
+    .status-container {
+        padding: 20px;
+        background: #f5f5f7;
+        border-radius: 12px;
+        margin-top: 20px;
+        text-align: center;
+        color: #86868b;
+        font-size: 14px;
+    }
 
 </style>
 """, unsafe_allow_html=True)
@@ -216,8 +247,24 @@ if st.session_state.page == 'landing':
         <div class="hero-eyebrow">Strategic Intelligence</div>
         <div class="hero-title">The Operating System<br>for your Brand.</div>
         <div class="hero-subtitle">
+            Most brands are messy. We fix that.
             Turn a few simple inputs into a comprehensive identity system.<br>
             Strategy, Voice, and Visuals. Instantaneously.
+        </div>
+        
+        <div class="feature-grid">
+            <div class="feature-item">
+                <h3>The North Star</h3>
+                <p>Define your Mission, Vision, and a rallying Manifesto that aligns your team.</p>
+            </div>
+            <div class="feature-item">
+                <h3>Verbal Identity</h3>
+                <p>Lock in your voice. Get specific "We Say / We Don't Say" guidelines and taglines.</p>
+            </div>
+            <div class="feature-item">
+                <h3>Visual Direction</h3>
+                <p>Art direction briefs for designers. Colors, typography, and imagery defined.</p>
+            </div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -246,9 +293,6 @@ else:
     st.markdown('<div class="app-card animate-enter">', unsafe_allow_html=True)
     
     # We use Streamlit columns to simulate the Left/Right split inside the card
-    # Note: We can't put columns *inside* an HTML div in pure Streamlit easily, 
-    # so we overlay the layout logic.
-    
     c_left, c_right = st.columns([1, 1], gap="large")
     
     with c_left:
@@ -258,7 +302,7 @@ else:
         # --- STEP 1: ENTITY ---
         if st.session_state.step == 1:
             st.markdown("<h2>The Foundation.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Establish the core parameters of the entity.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">This is the bedrock. We need to know who you are to build a strategy that fits.</div>', unsafe_allow_html=True)
             
             st.text_input("Company Name", key="company_name", placeholder="e.g. Acme Inc")
             st.text_input("Industry", key="industry", placeholder="e.g. Aerospace")
@@ -278,11 +322,11 @@ else:
         # --- STEP 2: STRATEGY ---
         elif st.session_state.step == 2:
             st.markdown("<h2>The Conflict.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Great brands solve a problem. Who is the villain?</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Great brands aren\'t just "better", they are different. To be different, you must stand against something.</div>', unsafe_allow_html=True)
             
-            st.text_input("The Enemy", key="enemy", placeholder="e.g. Complicated Software, Boring Food")
-            st.text_input("Origin Story", key="origin", placeholder="How did it start?")
-            st.text_input("Value Proposition", key="one_thing", placeholder="The one thing you do best")
+            st.text_input("The Enemy", key="enemy", placeholder="e.g. Complicated Software, Boring Food", help="What frustrates your customers about the status quo?")
+            st.text_input("Origin Story", key="origin", placeholder="How did it start?", help="One sentence on why you started.")
+            st.text_input("Value Proposition", key="one_thing", placeholder="The one thing you do best", help="If you could only say one thing, what would it be?")
             
             st.write("")
             col_a, col_b = st.columns([1,3])
@@ -296,11 +340,11 @@ else:
         # --- STEP 3: IDENTITY ---
         elif st.session_state.step == 3:
             st.markdown("<h2>The Persona.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Defining the human characteristics of the brand.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">People don\'t buy from corporations, they buy from people. We define the human characteristics of your brand here.</div>', unsafe_allow_html=True)
             
-            st.selectbox("Archetype", ["The Creator", "The Sage", "The Ruler", "The Outlaw", "The Hero", "The Magician"], key="archetype")
-            st.selectbox("Aesthetic Style", ["Swiss Minimalist", "Neo-Brutalist", "Luxury Serif", "Tech Modern", "Warm & Organic"], key="style")
-            st.text_input("Voice Reference", key="voice", placeholder="e.g. Steve Jobs meets Tony Stark")
+            st.selectbox("Archetype", ["The Creator", "The Sage", "The Ruler", "The Outlaw", "The Hero", "The Magician"], key="archetype", help="The primary character role your brand plays in the customer's life.")
+            st.selectbox("Aesthetic Style", ["Swiss Minimalist", "Neo-Brutalist", "Luxury Serif", "Tech Modern", "Warm & Organic"], key="style", help="The visual vibe of the brand.")
+            st.text_input("Voice Reference", key="voice", placeholder="e.g. Steve Jobs meets Tony Stark", help="If your brand was a celebrity, who would it be?")
             
             st.write("")
             col_a, col_b = st.columns([1,3])
@@ -314,7 +358,7 @@ else:
         # --- STEP 4: CHECKOUT ---
         elif st.session_state.step == 4:
             st.markdown("<h2>Acquisition.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Unlock the intelligence engine.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Unlock the intelligence engine to generate your comprehensive Brand Bible.</div>', unsafe_allow_html=True)
             
             st.markdown("""
             <div style="background: #f5f5f7; padding: 24px; border-radius: 16px; margin-bottom: 24px;">
@@ -342,31 +386,47 @@ else:
         # --- STEP 5: OUTPUT ---
         elif st.session_state.step == 5:
             st.markdown("<h2>The Bible.</h2>", unsafe_allow_html=True)
-            st.markdown('<div class="step-desc">Your strategic asset is ready.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="step-desc">Your strategic asset is being synthesized.</div>', unsafe_allow_html=True)
             
             if not st.session_state.generated_bible:
                 genai.configure(api_key=st.session_state.api_key)
-                with st.spinner("Synthesizing Strategy..."):
-                    prompt = f"""
-                    Role: Expert Brand Strategist.
-                    Client: {st.session_state.company_name} ({st.session_state.industry}).
-                    Inputs: Enemy={st.session_state.enemy}, Origin={st.session_state.origin}, Value={st.session_state.one_thing},
-                    Archetype={st.session_state.archetype}, Style={st.session_state.style}, Voice={st.session_state.voice}.
+                
+                # Dynamic Progress Bar
+                progress_text = "Connecting to Neural Engine..."
+                my_bar = st.progress(0, text=progress_text)
+                
+                time.sleep(0.5)
+                my_bar.progress(20, text="Analyzing Market Context...")
+                time.sleep(0.5)
+                my_bar.progress(40, text="Drafting Manifesto...")
+                
+                prompt = f"""
+                Role: Expert Brand Strategist.
+                Client: {st.session_state.company_name} ({st.session_state.industry}).
+                Inputs: Enemy={st.session_state.enemy}, Origin={st.session_state.origin}, Value={st.session_state.one_thing},
+                Archetype={st.session_state.archetype}, Style={st.session_state.style}, Voice={st.session_state.voice}.
+                
+                Generate Brand Bible (Markdown):
+                # {st.session_state.company_name.upper()}
+                ## 1. MANIFESTO
+                ## 2. STRATEGY (Enemy, Insight, Position)
+                ## 3. VERBAL IDENTITY (Voice, Tone, Taglines)
+                ## 4. VISUAL DIRECTION (Color, Type, Imagery)
+                """
+                
+                try:
+                    my_bar.progress(60, text="Synthesizing Visual Direction...")
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(prompt)
                     
-                    Generate Brand Bible (Markdown):
-                    # {st.session_state.company_name.upper()}
-                    ## 1. MANIFESTO
-                    ## 2. STRATEGY (Enemy, Insight, Position)
-                    ## 3. VERBAL IDENTITY (Voice, Tone, Taglines)
-                    ## 4. VISUAL DIRECTION (Color, Type, Imagery)
-                    """
-                    try:
-                        model = genai.GenerativeModel('gemini-1.5-flash')
-                        response = model.generate_content(prompt)
-                        st.session_state.generated_bible = response.text
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                    my_bar.progress(90, text="Finalizing PDF...")
+                    st.session_state.generated_bible = response.text
+                    my_bar.empty()
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"Generation Error: {e}")
+                    st.error("Please check your API Key and try again.")
             
             if st.session_state.generated_bible:
                 # PDF Generator
