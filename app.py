@@ -1,6 +1,10 @@
 import json
 import re
 import time
+import zlib
+import struct
+import tempfile
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import concurrent.futures
@@ -32,6 +36,7 @@ def ss_init():
         "error": "",
         "debug_last_raw": "",
         "api_key": "",
+        "plate_paths": {},  # cache for generated plate files by key
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -43,21 +48,12 @@ def ss_init():
 
 def reset_for_new_brand(keep_api_key: bool = True):
     api_key = st.session_state.api_key
-    st.session_state.view = "landing"
-    st.session_state.step_index = 0
-    st.session_state.answers = {}
-    st.session_state.refine_mode = False
-    st.session_state.refine_sections = []
-    st.session_state.brand_name = ""
-    st.session_state.last_json = None
-    st.session_state.pdf_bytes = None
-    st.session_state.model_used = ""
-    st.session_state.error = ""
-    st.session_state.debug_last_raw = ""
+    plate_paths = st.session_state.plate_paths
+    st.session_state.clear()
+    ss_init()
+    st.session_state.plate_paths = plate_paths
     if keep_api_key:
         st.session_state.api_key = api_key
-    else:
-        st.session_state.api_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
 
 
 def go(view: str):
@@ -393,6 +389,8 @@ def build_schema_prompt(brand_name: str, answers: dict, version_str: str, is_ref
     schema = (
         "{\n"
         '  "meta": { "brand_name": "", "version": "", "generated_date": "" },\n'
+        '  "colors": { "primary_hex": "", "accent_hex": "", "neutral_hex": "", "background_hex": "" },\n'
+        '  "typography": { "primary_font": "", "secondary_font": "", "notes": "" },\n'
         '  "executive_summary": { "decisions": [""] },\n'
         '  "positioning": { "positioning_statement": "", "category": "", "anti_position": "" },\n'
         '  "audience": { "core_customer": "", "core_tension": "", "primary_objection": "", "trust_trigger": "" },\n'
@@ -405,7 +403,7 @@ def build_schema_prompt(brand_name: str, answers: dict, version_str: str, is_ref
     )
 
     prompt = (
-        "You are a senior brand strategist at a top tier agency.\n"
+        "You are a senior brand strategist and design director.\n"
         "Your job is not to describe. Your job is to decide.\n"
         "Be opinionated, concise, and practical.\n"
         "If input is vague, sharpen it.\n"
@@ -416,12 +414,21 @@ def build_schema_prompt(brand_name: str, answers: dict, version_str: str, is_ref
         "Based on the intake answers below, generate a brand bible as a decision system.\n\n"
         "Return ONLY valid JSON that matches the schema exactly.\n"
         "No markdown. No commentary. No extra keys.\n\n"
+        "COLOR RULES\n"
+        "Return real hex colors.\n"
+        "primary_hex is the main text and brand anchor.\n"
+        "accent_hex is used sparingly for emphasis.\n"
+        "neutral_hex is the soft background or surface.\n"
+        "background_hex is the page background vibe.\n"
+        "Avoid neon unless the brand is explicitly neon.\n\n"
+        "TYPOGRAPHY RULES\n"
+        "Return font recommendations as names only.\n"
+        "Primary font should be a realistic modern sans.\n"
+        "Secondary font can be serif or mono if it makes sense.\n\n"
         "OUTPUT RULES\n"
         "Write in clear, confident, declarative language.\n"
         "Prefer rules over descriptions.\n"
-        "Avoid cliches, hype, and generic startup language.\n"
-        "Never say: this brand aims to\n"
-        "Never say: this brand seeks to\n\n"
+        "Avoid cliches, hype, and generic startup language.\n\n"
         "JSON SCHEMA\n"
         f"{schema}\n"
         "INPUT\n"
@@ -461,7 +468,12 @@ def generate_schema_json(prompt: str, timeout_s: int = 35) -> tuple[dict, str, s
             last_raw = raw
 
             data = json.loads(extract_json_object(raw))
-            for k in ["meta", "executive_summary", "positioning", "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]:
+            required = [
+                "meta", "colors", "typography",
+                "executive_summary", "positioning", "audience", "messaging",
+                "voice", "visual_direction", "guardrails", "usage"
+            ]
+            for k in required:
                 if k not in data:
                     raise ValueError("JSON missing required keys.")
             return data, model_name, last_raw
@@ -483,7 +495,7 @@ def generate_with_retry(prompt: str, timeout_s: int = 35) -> tuple[dict, str, st
 
 
 # =========================
-# PDF rendering with FPDF
+# PDF + plates
 # =========================
 def _safe_pdf_text(s: str) -> str:
     if not s:
@@ -500,6 +512,104 @@ def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
+def _hex_to_rgb(h: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
+    if not h:
+        return fallback
+    hs = h.strip()
+    if hs.startswith("#"):
+        hs = hs[1:]
+    if len(hs) != 6:
+        return fallback
+    try:
+        r = int(hs[0:2], 16)
+        g = int(hs[2:4], 16)
+        b = int(hs[4:6], 16)
+        return (r, g, b)
+    except Exception:
+        return fallback
+
+
+def _luma(rgb: tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    length = struct.pack(">I", len(data))
+    crc = zlib.crc32(chunk_type)
+    crc = zlib.crc32(data, crc)
+    crc_bytes = struct.pack(">I", crc & 0xFFFFFFFF)
+    return length + chunk_type + data + crc_bytes
+
+
+def _make_plate_png_bytes(
+    w: int,
+    h: int,
+    c1: tuple[int, int, int],
+    c2: tuple[int, int, int],
+    bg: tuple[int, int, int],
+) -> bytes:
+    # Deterministic pseudo noise based on colors
+    seed = (c1[0] << 16) + (c1[1] << 8) + c1[2] + (c2[0] << 8) + c2[1] + (bg[2] << 4)
+    x = seed & 0xFFFFFFFF
+
+    def rnd() -> int:
+        nonlocal x
+        x = (1664525 * x + 1013904223) & 0xFFFFFFFF
+        return x
+
+    scanlines = bytearray()
+    for y in range(h):
+        scanlines.append(0)  # filter type 0
+        t = y / max(h - 1, 1)
+        for px in range(w):
+            u = px / max(w - 1, 1)
+            # Blend a gentle diagonal gradient c1 -> c2 with bg bias
+            k = (u * 0.65 + t * 0.35)
+            r = int(c1[0] * (1 - k) + c2[0] * k)
+            g = int(c1[1] * (1 - k) + c2[1] * k)
+            b = int(c1[2] * (1 - k) + c2[2] * k)
+
+            # Add subtle noise and a soft vignette
+            n = (rnd() >> 24) - 128  # -128..127
+            n = int(n * 0.12)        # keep it subtle
+
+            # vignette factor
+            dx = (u - 0.5)
+            dy = (t - 0.5)
+            v = 1.0 - min(0.55, (dx * dx + dy * dy) * 1.25)
+
+            r = int((r + bg[0]) * 0.5 * v + r * 0.5)
+            g = int((g + bg[1]) * 0.5 * v + g * 0.5)
+            b = int((b + bg[2]) * 0.5 * v + b * 0.5)
+
+            r = max(0, min(255, r + n))
+            g = max(0, min(255, g + n))
+            b = max(0, min(255, b + n))
+
+            scanlines.extend((r, g, b))
+
+    raw = bytes(scanlines)
+    compressed = zlib.compress(raw, level=7)
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)  # 8-bit, RGB
+    return signature + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", compressed) + _png_chunk(b"IEND", b"")
+
+
+def _write_temp_png(png_bytes: bytes, key: str) -> str:
+    # Cache on disk for this session
+    if key in st.session_state.plate_paths and os.path.exists(st.session_state.plate_paths[key]):
+        return st.session_state.plate_paths[key]
+
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{key}.png")
+    f.write(png_bytes)
+    f.flush()
+    f.close()
+    st.session_state.plate_paths[key] = f.name
+    return f.name
+
+
 class BrandPDF(FPDF):
     def header(self):
         return
@@ -507,7 +617,7 @@ class BrandPDF(FPDF):
     def footer(self):
         self.set_y(-14)
         self.set_font("Helvetica", "", 9)
-        self.set_text_color(130, 130, 130)
+        self.set_text_color(140, 140, 140)
         brand = _safe_pdf_text((self._meta_brand or "").strip())
         if brand:
             self.cell(0, 10, brand, align="L")
@@ -518,22 +628,40 @@ class BrandPDF(FPDF):
 def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
     data = schema or {}
     meta = data.get("meta", {}) or {}
+    colors = data.get("colors", {}) or {}
+    typo = data.get("typography", {}) or {}
 
     brand = (meta.get("brand_name", "") or "").strip() or brand_name_fallback or "Brand"
 
-    THEME = {
+    # Defaults if model returns weak or invalid colors
+    DEFAULT = {
         "primary": (18, 22, 30),
         "accent": (28, 125, 255),
-        "neutral": (245, 246, 248),
+        "neutral": (235, 238, 242),
+        "background": (245, 246, 248),
         "muted_text": (85, 85, 85),
         "soft_line": (220, 220, 220),
     }
 
+    primary = _hex_to_rgb(colors.get("primary_hex", ""), DEFAULT["primary"])
+    accent = _hex_to_rgb(colors.get("accent_hex", ""), DEFAULT["accent"])
+    neutral = _hex_to_rgb(colors.get("neutral_hex", ""), DEFAULT["neutral"])
+    background = _hex_to_rgb(colors.get("background_hex", ""), DEFAULT["background"])
+
+    THEME = {
+        "primary": primary,
+        "accent": accent,
+        "neutral": neutral,
+        "background": background,
+        "muted_text": DEFAULT["muted_text"],
+        "soft_line": DEFAULT["soft_line"],
+    }
+
     palette = [
-        ("Primary", THEME["primary"]),
-        ("Accent", THEME["accent"]),
-        ("Neutral", (235, 238, 242)),
-        ("Ink", (35, 35, 35)),
+        ("Primary", primary),
+        ("Accent", accent),
+        ("Neutral", neutral),
+        ("Background", background),
     ]
 
     posture = (answers or {}).get("animal", "") or ""
@@ -542,24 +670,67 @@ def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
         posture = posture_other.strip() or "Other"
     posture = posture.strip()
 
+    # Plates (generated images)
+    cover_plate_bytes = _make_plate_png_bytes(1600, 900, primary, accent, background)
+    divider_plate_bytes = _make_plate_png_bytes(1600, 500, primary, accent, background)
+    cover_plate_path = _write_temp_png(cover_plate_bytes, key=f"cover_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
+    divider_plate_path = _write_temp_png(divider_plate_bytes, key=f"div_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
+
+    # Text color on plates
+    plate_dark = _luma(background) < 150 or (_luma(primary) < 120 and _luma(accent) < 160)
+    PLATE_TEXT = (245, 246, 248) if plate_dark else (18, 22, 30)
+    PLATE_MUTED = (230, 232, 236) if plate_dark else (70, 70, 70)
+
     pdf = BrandPDF(format="Letter")
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(18, 18, 18)
     pdf._meta_brand = brand
 
+    def cover():
+        pdf.add_page()
+        # full bleed plate
+        pdf.image(cover_plate_path, x=0, y=0, w=pdf.w, h=pdf.h)
+
+        pdf.set_text_color(*PLATE_TEXT)
+        pdf.set_font("Helvetica", "B", 34)
+        pdf.set_xy(18, 52)
+        pdf.multi_cell(0, 12, _safe_pdf_text(brand))
+
+        pos = (data.get("positioning", {}) or {}).get("positioning_statement", "") or ""
+        pos = _safe_pdf_text(pos.strip())
+        if pos:
+            pdf.ln(4)
+            pdf.set_font("Helvetica", "", 13)
+            pdf.set_text_color(*PLATE_MUTED)
+            pdf.multi_cell(0, 8, pos)
+
+        if posture:
+            pdf.ln(10)
+            pdf.set_text_color(*PLATE_TEXT)
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 7, "Brand posture", ln=1)
+            pdf.set_text_color(*PLATE_MUTED)
+            pdf.set_font("Helvetica", "", 11)
+            pdf.multi_cell(0, 7, _safe_pdf_text(posture))
+
+        # no "Generated" anywhere
+
     def divider_page(title: str, one_liner: str):
         pdf.add_page()
-        pdf.set_text_color(*THEME["primary"])
+        pdf.image(divider_plate_path, x=0, y=0, w=pdf.w, h=pdf.h * 0.62)
+
+        pdf.set_text_color(*PLATE_TEXT)
         pdf.set_font("Helvetica", "B", 28)
-        pdf.ln(46)
+        pdf.set_xy(18, 52)
         pdf.multi_cell(0, 12, _safe_pdf_text(title))
 
         pdf.ln(6)
-        pdf.set_text_color(*THEME["muted_text"])
+        pdf.set_text_color(*PLATE_MUTED)
         pdf.set_font("Helvetica", "", 12)
         pdf.multi_cell(0, 8, _safe_pdf_text(one_liner))
 
-        pdf.ln(14)
+        # Accent line
+        pdf.ln(12)
         pdf.set_draw_color(*THEME["accent"])
         y = pdf.get_y()
         pdf.set_line_width(1.2)
@@ -567,6 +738,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
 
     def page_heading(title: str):
         pdf.add_page()
+        # light editorial page
         pdf.set_text_color(*THEME["primary"])
         pdf.set_font("Helvetica", "B", 18)
         pdf.ln(6)
@@ -577,41 +749,6 @@ def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
         pdf.set_line_width(0.6)
         pdf.line(18, y, 198, y)
         pdf.ln(10)
-
-    def cover():
-        pdf.add_page()
-        pdf.set_text_color(*THEME["primary"])
-        pdf.set_font("Helvetica", "B", 34)
-        pdf.ln(40)
-        pdf.multi_cell(0, 12, _safe_pdf_text(brand))
-
-        pos = (data.get("positioning", {}) or {}).get("positioning_statement", "") or ""
-        pos = _safe_pdf_text(pos.strip())
-        if pos:
-            pdf.ln(6)
-            pdf.set_font("Helvetica", "", 13)
-            pdf.set_text_color(*THEME["muted_text"])
-            pdf.multi_cell(0, 8, pos)
-
-        if posture:
-            pdf.ln(10)
-            pdf.set_text_color(*THEME["primary"])
-            pdf.set_font("Helvetica", "B", 11)
-            pdf.cell(0, 7, "Brand posture", ln=1)
-            pdf.set_text_color(*THEME["muted_text"])
-            pdf.set_font("Helvetica", "", 11)
-            pdf.multi_cell(0, 7, _safe_pdf_text(posture))
-
-        pdf.ln(16)
-        pdf.set_draw_color(*THEME["accent"])
-        y = pdf.get_y()
-        pdf.set_line_width(1.2)
-        pdf.line(18, y, 198, y)
-
-        pdf.ln(10)
-        pdf.set_text_color(*THEME["muted_text"])
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 7, "Brand system and decision guide")
 
     def palette_page():
         pdf.add_page()
@@ -632,15 +769,49 @@ def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
             pdf.set_fill_color(r, g, b)
             pdf.set_draw_color(230, 230, 230)
             pdf.rect(18, pdf.get_y(), 50, box_h, style="FD")
+
             pdf.set_xy(74, pdf.get_y() + 2)
             pdf.set_text_color(*THEME["primary"])
             pdf.set_font("Helvetica", "B", 11)
             pdf.cell(0, 7, _safe_pdf_text(name), ln=1)
+
             pdf.set_x(74)
             pdf.set_text_color(*THEME["muted_text"])
             pdf.set_font("Helvetica", "", 10)
             pdf.cell(0, 6, _safe_pdf_text(f"{hexv}   RGB {r}, {g}, {b}"), ln=1)
             pdf.ln(8)
+
+    def typography_page():
+        pdf.add_page()
+        pdf.set_text_color(*THEME["primary"])
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.ln(6)
+        pdf.cell(0, 10, "Typography", ln=1)
+        pdf.set_draw_color(*THEME["soft_line"])
+        y = pdf.get_y()
+        pdf.set_line_width(0.6)
+        pdf.line(18, y, 198, y)
+        pdf.ln(10)
+
+        primary_font = _safe_pdf_text((typo.get("primary_font", "") or "").strip())
+        secondary_font = _safe_pdf_text((typo.get("secondary_font", "") or "").strip())
+        notes = _safe_pdf_text((typo.get("notes", "") or "").strip())
+
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(*THEME["primary"])
+        pdf.cell(0, 7, "Recommended fonts", ln=1)
+
+        pdf.set_font("Helvetica", "", 11)
+        pdf.set_text_color(45, 45, 45)
+        if primary_font:
+            pdf.multi_cell(0, 7, f"Primary: {primary_font}")
+        if secondary_font:
+            pdf.multi_cell(0, 7, f"Secondary: {secondary_font}")
+        if notes:
+            pdf.ln(4)
+            pdf.set_text_color(*THEME["muted_text"])
+            pdf.set_font("Helvetica", "", 10)
+            pdf.multi_cell(0, 6, notes)
 
     def body_text(text: str):
         t = _safe_pdf_text((text or "").strip())
@@ -740,6 +911,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
 
     cover()
     palette_page()
+    typography_page()
 
     divider_page("Executive summary", "The decisions that keep this brand consistent.")
     page_heading("Executive summary")
@@ -946,7 +1118,7 @@ def landing_view():
     st.markdown('<div class="eyebrow">Brand system generator</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle">Build a brand that stays consistent when you are not in the room</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="heroSub">A guided brand interview that turns strategy, voice and visual direction into a clear, usable brand bible you can actually follow.</div>',
+        '<div class="heroSub">A guided brand interview that turns strategy, voice and visual direction into a clean brand bible that teams actually follow.</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
@@ -955,7 +1127,7 @@ def landing_view():
           <div class="pill">Decision system</div>
           <div class="pill">Non boring intake</div>
           <div class="pill">PDF deliverable</div>
-          <div class="pill">Built like an agency</div>
+          <div class="pill">Feels premium</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -979,7 +1151,7 @@ def landing_view():
         st.write("Voice rules with examples")
         st.write("Visual direction and guardrails")
         st.write("")
-        st.caption("One time purchase. Includes room to refine.")
+        st.caption("One purchase. Includes room to refine.")
 
     st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
     if st.button("Start brand interview"):
@@ -991,7 +1163,7 @@ def landing_view():
         with st.expander("Developer settings"):
             st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
 
-    st.markdown('<div class="smallNote">Includes 5 generations. Most people use 2 to 3.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="smallNote">Includes 5 generations. Most people use 2 or 3.</div>', unsafe_allow_html=True)
     card_end()
 
 
@@ -1172,7 +1344,7 @@ def generate_view():
         refine_focus=refine_focus,
     )
 
-    stages = ["Analyzing inputs", "Defining positioning", "Writing voice rules", "Setting visual direction", "Assembling PDF"]
+    stages = ["Analyzing inputs", "Defining positioning", "Choosing colors", "Setting voice and visuals", "Assembling PDF"]
     stage_slot = st.empty()
 
     try:
