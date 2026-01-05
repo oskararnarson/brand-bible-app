@@ -1019,16 +1019,16 @@ def confirm_view():
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     with st.expander("Review your inputs", expanded=False):
-    for q in QUESTIONS:
-        ans = st.session_state.answers.get(q.answer_key)
-        if ans is None or ans == "" or ans == []:
-            continue
-        st.markdown(f"**{q.title}**")
-        if isinstance(ans, list):
-            st.write(", ".join(ans))
-        else:
-            st.write(ans)
-        st.markdown("")
+        for q in QUESTIONS:
+            ans = st.session_state.answers.get(q.answer_key)
+            if ans is None or ans == "" or ans == []:
+                continue
+            st.markdown(f"**{q.title}**")
+            if isinstance(ans, list):
+                st.write(", ".join(ans))
+            else:
+                st.write(ans)
+            st.markdown("")
 
 
     col1, col2 = st.columns([1, 1])
