@@ -19,35 +19,37 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+
 # -----------------------------------------------------------------------------
-# PREMIUM DARK UI CSS
+# CSS
 # -----------------------------------------------------------------------------
 st.markdown(
     """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-/* Base */
 html, body, [class*="css"] {
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
 body {
-  background: radial-gradient(1200px 800px at 20% 40%, rgba(0, 120, 255, 0.18), rgba(0,0,0,0) 60%),
-              radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0) 55%),
-              #0b0d11;
+  background:
+    radial-gradient(1200px 800px at 20% 40%, rgba(0, 120, 255, 0.18), rgba(0,0,0,0) 60%),
+    radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0) 55%),
+    #0b0d11;
   color: #e9edf5;
 }
+
 section[data-testid="stSidebar"] { display: none !important; }
 header, footer { visibility: hidden !important; }
 
-/* Container sizing */
 .block-container{
-  max-width: 1200px !important;
-  padding-top: 2.4rem;
+  max-width: 1220px !important;
+  padding-top: 2.2rem;
   padding-bottom: 4rem;
 }
 
-/* Glass panels */
+/* Panels */
 .glass {
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
   border: 1px solid rgba(255,255,255,0.08);
@@ -55,12 +57,14 @@ header, footer { visibility: hidden !important; }
   box-shadow: 0 30px 120px rgba(0,0,0,0.55);
   backdrop-filter: blur(16px);
 }
+
 .panel {
   background: linear-gradient(180deg, rgba(10,12,16,0.88), rgba(10,12,16,0.72));
   border: 1px solid rgba(255,255,255,0.07);
   border-radius: 22px;
   box-shadow: 0 18px 60px rgba(0,0,0,0.45);
 }
+
 .panel-soft {
   background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03));
   border: 1px solid rgba(255,255,255,0.08);
@@ -75,6 +79,7 @@ header, footer { visibility: hidden !important; }
   text-transform: uppercase;
   color: rgba(235,240,255,0.65);
 }
+
 .h-title{
   font-size: 58px;
   line-height: 1.05;
@@ -82,13 +87,15 @@ header, footer { visibility: hidden !important; }
   font-weight: 700;
   margin: 10px 0 10px 0;
 }
+
 .h-sub{
   max-width: 860px;
   font-size: 16px;
   line-height: 1.7;
   color: rgba(235,240,255,0.72);
-  margin-bottom: 22px;
+  margin-bottom: 18px;
 }
+
 .small-muted{
   font-size: 12px;
   line-height: 1.6;
@@ -100,8 +107,9 @@ header, footer { visibility: hidden !important; }
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 16px;
+  margin-top: 14px;
 }
+
 .pill {
   font-size: 12px;
   padding: 9px 12px;
@@ -111,96 +119,128 @@ header, footer { visibility: hidden !important; }
   color: rgba(235,240,255,0.70);
 }
 
-/* Landing hero layout */
+/* Landing hero */
 .hero-wrap{
-  padding: 54px 54px 36px 54px;
+  padding: 54px 54px 42px 54px;
   position: relative;
   overflow: hidden;
 }
+
 .hero-bg{
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(90deg, rgba(11,13,17,0.92) 0%, rgba(11,13,17,0.70) 50%, rgba(11,13,17,0.25) 100%),
+    linear-gradient(90deg, rgba(11,13,17,0.92) 0%, rgba(11,13,17,0.70) 52%, rgba(11,13,17,0.20) 100%),
     url("https://images.unsplash.com/photo-1521737604893-d14cc237f11d?q=80&w=2400&auto=format&fit=crop");
   background-size: cover;
   background-position: center;
   filter: saturate(0.9) contrast(1.05);
   transform: scale(1.03);
 }
+
 .hero-content{
   position: relative;
   z-index: 2;
 }
+
 .hero-grid{
-  margin-top: 20px;
+  margin-top: 18px;
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
-  gap: 22px;
+  gap: 18px;
 }
+
 .hero-cards{
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
+
 .card{
   padding: 16px 16px 14px 16px;
   border-radius: 18px;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.08);
 }
+
 .cardT{
   font-size: 13px;
   font-weight: 600;
   color: rgba(235,240,255,0.90);
   margin-bottom: 6px;
 }
+
 .cardB{
   font-size: 12px;
   line-height: 1.6;
   color: rgba(235,240,255,0.68);
 }
 
-/* CTA */
-.cta-row{
-  display:flex;
-  justify-content:center;
-  margin-top: 26px;
-  margin-bottom: 6px;
+/* Inputs */
+label {
+  font-size: 11px !important;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(235,240,255,0.55) !important;
+  font-weight: 600 !important;
 }
+
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"]{
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.10) !important;
+  border-radius: 16px !important;
+  color: rgba(235,240,255,0.88) !important;
+}
+
+.stTextInput input:focus, .stTextArea textarea:focus{
+  border: 1px solid rgba(28,125,255,0.75) !important;
+  box-shadow: 0 0 0 5px rgba(28,125,255,0.18) !important;
+}
+
+/* Buttons */
 div.stButton > button {
   background: linear-gradient(180deg, #1c7dff, #0d5fe9);
   color: white;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 650;
   padding: 14px 26px;
   border-radius: 999px;
   border: 1px solid rgba(255,255,255,0.12);
   box-shadow: 0 18px 45px rgba(0,110,255,0.35);
   transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  white-space: nowrap !important;
+  min-width: 160px;
 }
+
 div.stButton > button:hover {
   transform: translateY(-1px);
   box-shadow: 0 22px 60px rgba(0,110,255,0.45);
   filter: brightness(1.03);
 }
-.secondaryBtn button{
+
+.secondaryBtn div.stButton > button{
   background: rgba(255,255,255,0.06) !important;
   box-shadow: none !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
   color: rgba(235,240,255,0.88) !important;
 }
-.dangerBtn button{
-  background: rgba(255,255,255,0.02) !important;
+
+.dangerBtn div.stButton > button{
+  background: rgba(255,255,255,0.03) !important;
   box-shadow: none !important;
   border: 1px solid rgba(255,255,255,0.10) !important;
-  color: rgba(235,240,255,0.62) !important;
+  color: rgba(235,240,255,0.72) !important;
 }
 
-/* Wizard */
-.wizardShell{
-  padding: 22px;
+/* Special landing Start button */
+.startBig div.stButton > button{
+  font-size: 18px !important;
+  padding: 18px 34px !important;
+  min-width: 240px !important;
+  box-shadow: 0 22px 70px rgba(0,110,255,0.42) !important;
 }
+
+/* Wizard top bar */
 .wizardTop{
   display:flex;
   align-items:center;
@@ -211,6 +251,7 @@ div.stButton > button:hover {
   border: 1px solid rgba(255,255,255,0.07);
   margin-bottom: 18px;
 }
+
 .brandDot{
   width: 12px;
   height: 12px;
@@ -220,19 +261,23 @@ div.stButton > button:hover {
   display:inline-block;
   margin-right: 10px;
 }
+
 .topTitle{
   font-size: 13px;
   font-weight: 600;
   color: rgba(235,240,255,0.92);
 }
+
 .topSub{
   font-size: 12px;
   color: rgba(235,240,255,0.60);
 }
+
 .dotRow{
   display:flex;
   gap: 8px;
 }
+
 .stepDot{
   width: 7px;
   height: 7px;
@@ -240,6 +285,7 @@ div.stButton > button:hover {
   background: rgba(235,240,255,0.18);
   border: 1px solid rgba(255,255,255,0.12);
 }
+
 .stepDot.active{
   background: rgba(28,125,255,0.95);
   border: 1px solid rgba(28,125,255,0.95);
@@ -250,6 +296,7 @@ div.stButton > button:hover {
 .sectionCard{
   padding: 22px;
 }
+
 .sectionTag{
   display:inline-flex;
   align-items:center;
@@ -263,23 +310,27 @@ div.stButton > button:hover {
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.08);
 }
+
 .sectionNum{
   font-size: 54px;
   font-weight: 700;
   margin: 16px 0 4px 0;
   letter-spacing: -0.02em;
 }
+
 .sectionName{
   font-size: 22px;
   font-weight: 700;
   margin-bottom: 10px;
 }
+
 .sectionDesc{
   font-size: 13px;
   line-height: 1.7;
   color: rgba(235,240,255,0.68);
   max-width: 320px;
 }
+
 .sectionTip{
   margin-top: 16px;
   font-size: 12px;
@@ -290,13 +341,14 @@ div.stButton > button:hover {
 /* Form panel */
 .formPanel{
   padding: 22px;
-  min-height: 260px;
 }
+
 .formTitle{
   font-size: 18px;
   font-weight: 700;
   color: rgba(235,240,255,0.92);
 }
+
 .formSub{
   font-size: 12px;
   line-height: 1.6;
@@ -304,6 +356,7 @@ div.stButton > button:hover {
   margin-top: 6px;
   margin-bottom: 14px;
 }
+
 .hr{
   height: 1px;
   background: rgba(255,255,255,0.07);
@@ -316,20 +369,20 @@ div.stButton > button:hover {
   position: relative;
   overflow: hidden;
 }
+
 .guideBg{
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(180deg, rgba(10,12,16,0.35), rgba(10,12,16,0.92)),
-    url("https://images.unsplash.com/photo-1522071820081-009f0129c71c?q=80&w=1200&auto=format&fit=crop");
   background-size: cover;
   background-position: center;
   filter: saturate(0.9) contrast(1.05);
 }
+
 .guideContent{
   position: relative;
   z-index: 2;
 }
+
 .guideTag{
   font-size: 11px;
   letter-spacing: 0.16em;
@@ -337,22 +390,26 @@ div.stButton > button:hover {
   color: rgba(235,240,255,0.62);
   margin-bottom: 10px;
 }
+
 .guideTitle{
   font-size: 16px;
   font-weight: 700;
   margin-bottom: 8px;
 }
+
 .guideText{
   font-size: 12px;
   line-height: 1.65;
   color: rgba(235,240,255,0.72);
 }
+
 .chips{
   display:flex;
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 12px;
 }
+
 .chip{
   font-size: 11px;
   padding: 7px 10px;
@@ -362,23 +419,13 @@ div.stButton > button:hover {
   color: rgba(235,240,255,0.74);
 }
 
-/* Inputs */
-label {
-  font-size: 11px !important;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(235,240,255,0.55) !important;
-  font-weight: 600 !important;
-}
-.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"]{
-  background: rgba(255,255,255,0.05) !important;
-  border: 1px solid rgba(255,255,255,0.10) !important;
-  border-radius: 16px !important;
-  color: rgba(235,240,255,0.88) !important;
-}
-.stTextInput input:focus, .stTextArea textarea:focus{
-  border: 1px solid rgba(28,125,255,0.75) !important;
-  box-shadow: 0 0 0 5px rgba(28,125,255,0.18) !important;
+/* Bottom action bar */
+.actionBar{
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.07);
+  background: rgba(255,255,255,0.03);
 }
 
 /* Transition overlay */
@@ -386,6 +433,7 @@ label {
   0% { opacity: 0; transform: scale(1.01); }
   100% { opacity: 1; transform: scale(1.00); }
 }
+
 .overlay{
   position: fixed;
   inset: 0;
@@ -397,6 +445,7 @@ label {
   align-items:center;
   justify-content:center;
 }
+
 .overlayText{
   font-size: 14px;
   color: rgba(235,240,255,0.68);
@@ -408,6 +457,7 @@ label {
     unsafe_allow_html=True,
 )
 
+
 # -----------------------------------------------------------------------------
 # SESSION STATE
 # -----------------------------------------------------------------------------
@@ -416,19 +466,21 @@ def ss_init(key, value):
         st.session_state[key] = value
 
 
-ss_init("view", "landing")          # landing, wizard, pay, generate
-ss_init("step", 1)                 # 1..4
+ss_init("view", "landing")               # landing, wizard, pay, generate
+ss_init("step", 1)                      # 1..4
 ss_init("do_transition", False)
+
 ss_init("payment_ok", False)
 ss_init("generated_text", "")
 ss_init("website_signals", "")
-ss_init("gen_status", "idle")      # idle, running, done, error
+
+ss_init("gen_running", False)
 ss_init("gen_error", "")
+ss_init("cancel_requested", False)
 
 for k in [
     "company_name", "industry", "website", "api_key",
     "audience", "offer", "proof",
-    "enemy", "insight", "positioning",
     "voice", "do_say", "dont_say",
     "visual_style", "colors", "typography", "imagery",
 ]:
@@ -438,19 +490,6 @@ for k in [
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
-def gemini_generate_with_timeout(model, prompt: str, timeout_s: int = 35, retries: int = 1) -> str:
-    last_err = None
-    for _ in range(retries + 1):
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(model.generate_content, prompt)
-                resp = fut.result(timeout=timeout_s)
-            return (resp.text or "").strip()
-        except Exception as e:
-            last_err = e
-    raise RuntimeError(f"Gemini generation failed or timed out: {last_err}")
-
-
 def normalize_whitespace(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -525,6 +564,14 @@ def pdf_from_markdown(md: str, company: str) -> bytes:
     return pdf.output(dest="S").encode("latin-1")
 
 
+def dots(step: int, total: int = 4) -> str:
+    items = []
+    for i in range(1, total + 1):
+        cls = "stepDot active" if i == step else "stepDot"
+        items.append(f'<div class="{cls}"></div>')
+    return "".join(items)
+
+
 def transition_then(next_view: str, next_step: int | None = None):
     st.session_state.do_transition = True
     st.session_state._next_view = next_view
@@ -549,12 +596,78 @@ def render_transition_if_needed():
         st.rerun()
 
 
-def dots(step: int, total: int = 4) -> str:
-    items = []
-    for i in range(1, total + 1):
-        cls = "stepDot active" if i == step else "stepDot"
-        items.append(f'<div class="{cls}"></div>')
-    return "".join(items)
+def build_prompt() -> str:
+    company = st.session_state.company_name.strip()
+    industry = st.session_state.industry.strip()
+
+    site = st.session_state.website.strip()
+    signals = st.session_state.website_signals.strip()
+
+    parts = []
+    parts.append("Role: world class brand strategist and editorial designer.")
+    parts.append("Output: a brand bible in markdown. Premium, usable, specific.")
+    parts.append("Avoid fluff. Avoid vague adjectives without rules or examples.")
+    parts.append("")
+    parts.append(f"Brand: {company}")
+    parts.append(f"Industry: {industry}")
+    if site:
+        parts.append(f"Website: {site}")
+    parts.append("")
+    parts.append("Inputs")
+    parts.append(f"Audience: {st.session_state.audience}")
+    parts.append(f"Offer: {st.session_state.offer}")
+    parts.append(f"Proof: {st.session_state.proof}")
+    parts.append("")
+    parts.append(f"Voice reference: {st.session_state.voice}")
+    parts.append(f"Do say: {st.session_state.do_say}")
+    parts.append(f"Do not say: {st.session_state.dont_say}")
+    parts.append("")
+    parts.append(f"Visual style: {st.session_state.visual_style}")
+    parts.append(f"Color direction: {st.session_state.colors}")
+    parts.append(f"Typography direction: {st.session_state.typography}")
+    parts.append(f"Imagery direction: {st.session_state.imagery}")
+    parts.append("")
+
+    if signals:
+        parts.append("Website signals")
+        parts.append("Use these only as evidence. If unclear, do not invent.")
+        parts.append(signals[:2500])
+        parts.append("")
+
+    parts.append("Structure")
+    parts.append(f"# {company}")
+    parts.append("## Executive summary")
+    parts.append("## Positioning")
+    parts.append("Include category, audience focus, and defendable edge.")
+    parts.append("## Messaging system")
+    parts.append("Include key messages, proof points, tagline options, and a short elevator pitch.")
+    parts.append("## Voice and tone")
+    parts.append("Include principles, do and do not lists, and 6 example sentences in the voice.")
+    parts.append("## Visual direction")
+    parts.append("Include palette logic, typography intent, layout rules, imagery rules, and what to avoid.")
+    parts.append("## Quick start")
+    parts.append("One page summary as bullets a team can paste into a doc.")
+    parts.append("")
+    parts.append("Quality bar")
+    parts.append("Reads like a small agency deliverable. Tight, confident, usable.")
+    parts.append("No invented awards or fake history. If unsure, frame as options.")
+    return "\n".join(parts)
+
+
+def gemini_generate_with_timeout(prompt: str, timeout_s: int = 45, retries: int = 1) -> str:
+    genai.configure(api_key=st.session_state.api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    last_err = None
+    for _ in range(retries + 1):
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(model.generate_content, prompt)
+                resp = fut.result(timeout=timeout_s)
+            return (resp.text or "").strip()
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"Generation failed or timed out: {last_err}")
 
 
 # -----------------------------------------------------------------------------
@@ -596,8 +709,9 @@ def render_landing():
                   <div class="cardB">Keywords, avoids, and layout rules designers trust.</div>
                 </div>
               </div>
+
               <div class="panel-soft" style="padding:18px; border-radius:22px;">
-                <div class="small-muted" style="margin-bottom:10px;">Preview output quality</div>
+                <div class="small-muted" style="margin-bottom:10px;">Preview</div>
                 <div style="border-radius:18px; overflow:hidden; border:1px solid rgba(255,255,255,0.10);">
                   <img src="https://images.unsplash.com/photo-1557682260-96773eb01377?q=80&w=1400&auto=format&fit=crop"
                        style="width:100%; height:220px; object-fit:cover; display:block;" />
@@ -607,23 +721,26 @@ def render_landing():
                 </div>
               </div>
             </div>
+
           </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    st.markdown('<div class="cta-row">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1, 1])
+    st.markdown("<div style='height:18px;'></div>", unsafe_allow_html=True)
+
+    c1, c2, c3 = st.columns([1.2, 1, 1.2])
     with c2:
+        st.markdown("<div class='startBig'>", unsafe_allow_html=True)
         if st.button("Start"):
             transition_then("wizard", 1)
             st.rerun()
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
-# WIZARD
+# WIZARD UI
 # -----------------------------------------------------------------------------
 def render_wizard_top():
     st.markdown(
@@ -643,8 +760,18 @@ def render_wizard_top():
     )
 
 
-def render_step_shell(section_tag: str, num: str, name: str, desc: str, tip: str, guide_title: str, guide_text: str, guide_chips: list[str], guide_img: str):
-    left, mid, right = st.columns([0.95, 1.45, 0.9], gap="large")
+def render_step_shell(
+    section_tag: str,
+    num: str,
+    name: str,
+    desc: str,
+    tip: str,
+    guide_title: str,
+    guide_text: str,
+    guide_chips: list[str],
+    guide_img: str,
+):
+    left, mid, right = st.columns([1.0, 1.65, 1.0], gap="large")
 
     with left:
         st.markdown(
@@ -666,7 +793,7 @@ def render_step_shell(section_tag: str, num: str, name: str, desc: str, tip: str
             f"""
             <div class="panel guideCard" style="height:100%;">
               <div class="guideBg" style="background-image:
-                linear-gradient(180deg, rgba(10,12,16,0.35), rgba(10,12,16,0.92)),
+                linear-gradient(180deg, rgba(10,12,16,0.30), rgba(10,12,16,0.92)),
                 url('{guide_img}');"></div>
               <div class="guideContent">
                 <div class="guideTag">Guide</div>
@@ -680,6 +807,38 @@ def render_step_shell(section_tag: str, num: str, name: str, desc: str, tip: str
         )
 
     return mid
+
+
+def action_bar(left_label: str | None, left_kind: str, left_cb, right_label: str, right_kind: str, right_cb):
+    st.markdown("<div class='actionBar'>", unsafe_allow_html=True)
+    a, b, c = st.columns([1, 1, 1])
+
+    with a:
+        if left_label:
+            if left_kind == "secondary":
+                st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+            elif left_kind == "danger":
+                st.markdown("<div class='dangerBtn'>", unsafe_allow_html=True)
+            if st.button(left_label, use_container_width=True):
+                left_cb()
+            if left_kind in ["secondary", "danger"]:
+                st.markdown("</div>", unsafe_allow_html=True)
+
+    with c:
+        if right_kind == "secondary":
+            st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+        if st.button(right_label, use_container_width=True):
+            right_cb()
+        if right_kind == "secondary":
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def demo_fill():
+    st.session_state["company_name"] = "Oura"
+    st.session_state["industry"] = "Health tech"
+    st.session_state["website"] = "ouraring.com"
 
 
 def step_1():
@@ -700,7 +859,7 @@ def step_1():
             """
             <div class="panel formPanel">
               <div class="formTitle">Brand identity signals</div>
-              <div class="formSub">We use these to anchor the strategy and tone in something real.</div>
+              <div class="formSub">We use these to anchor strategy and tone in something real.</div>
               <div class="hr"></div>
             </div>
             """,
@@ -712,24 +871,28 @@ def step_1():
         st.text_input("Website (optional)", key="website", placeholder="Example ouraring.com")
         st.text_input("Gemini API key", key="api_key", type="password", placeholder="Paste your key")
 
-        cols = st.columns([1, 1, 1, 1, 1])
-        with cols[0]:
-            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-            if st.button("Demo"):
-                st.session_state.company_name = "Oura"
-                st.session_state.industry = "Health tech"
-                st.session_state.website = "ouraring.com"
-            st.markdown("</div>", unsafe_allow_html=True)
+        def go_next():
+            if not st.session_state.company_name or not st.session_state.api_key:
+                st.warning("Brand name and API key are required.")
+                return
+            if st.session_state.website:
+                st.session_state.website_signals = scrape_website_text(st.session_state.website)
+            st.session_state.step = 2
+            st.rerun()
 
-        with cols[4]:
-            if st.button("Continue"):
-                if not st.session_state.company_name or not st.session_state.api_key:
-                    st.warning("Brand name and API key are required.")
-                    return
-                if st.session_state.website and not st.session_state.website_signals:
-                    st.session_state.website_signals = scrape_website_text(st.session_state.website)
-                st.session_state.step = 2
-                st.rerun()
+        def do_demo():
+            demo_fill()
+            st.rerun()
+
+        st.markdown("<div class='actionBar'>", unsafe_allow_html=True)
+        a, b, c = st.columns([1, 1, 1])
+        with a:
+            st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+            st.button("Demo", use_container_width=True, on_click=do_demo)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with c:
+            st.button("Continue", use_container_width=True, on_click=go_next)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def step_2():
@@ -757,24 +920,22 @@ def step_2():
             unsafe_allow_html=True,
         )
 
-        st.text_area("Audience", key="audience", height=90, placeholder="Who is it for. Include role, context, and what they care about.")
-        st.text_area("Offer", key="offer", height=90, placeholder="What do they get. Name the outcome, not the feature.")
-        st.text_area("Proof", key="proof", height=90, placeholder="Why believe it. Evidence, process, metrics, credibility.")
+        st.text_area("Audience", key="audience", height=110, placeholder="Who is it for. Include role, context, and what they care about.")
+        st.text_area("Offer", key="offer", height=110, placeholder="What do they get. Name the outcome, not the feature.")
+        st.text_area("Proof", key="proof", height=110, placeholder="Why believe it. Evidence, process, metrics, credibility.")
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-            if st.button("Back"):
-                st.session_state.step = 1
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-        with c2:
-            if st.button("Continue"):
-                if not st.session_state.audience or not st.session_state.offer:
-                    st.warning("Audience and Offer are required.")
-                    return
-                st.session_state.step = 3
-                st.rerun()
+        def go_back():
+            st.session_state.step = 1
+            st.rerun()
+
+        def go_next():
+            if not st.session_state.audience or not st.session_state.offer:
+                st.warning("Audience and Offer are required.")
+                return
+            st.session_state.step = 3
+            st.rerun()
+
+        action_bar("Back", "secondary", go_back, "Continue", "primary", go_next)
 
 
 def step_3():
@@ -785,7 +946,7 @@ def step_3():
         desc="Set the speaking rules. Make it usable for writing, sales, and support.",
         tip="Rules beat adjectives. Give examples. Give constraints.",
         guide_title="Do and do not",
-        guide_text="Define principles, then give phrases you would use and phrases you would never use.",
+        guide_text="Define principles, then phrases you would use and phrases you would never use.",
         guide_chips=["Principles", "Do say", "Do not say"],
         guide_img="https://images.unsplash.com/photo-1526948128573-703ee1aeb6fa?q=80&w=1200&auto=format&fit=crop",
     )
@@ -795,28 +956,26 @@ def step_3():
             """
             <div class="panel formPanel">
               <div class="formTitle">Voice system</div>
-              <div class="formSub">Make it concrete enough that a writer can apply it tomorrow.</div>
+              <div class="formSub">Concrete enough that a writer can apply it tomorrow.</div>
               <div class="hr"></div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.text_area("Voice reference", key="voice", height=70, placeholder="Optional: reference tone. Example: calm, precise, warm.")
-        st.text_area("Do say", key="do_say", height=90, placeholder="Words, phrases, and sentence patterns you use.")
-        st.text_area("Do not say", key="dont_say", height=90, placeholder="Words, phrases, and patterns you avoid.")
+        st.text_area("Voice reference", key="voice", height=90, placeholder="Optional. Example: calm, precise, warm.")
+        st.text_area("Do say", key="do_say", height=120, placeholder="Words, phrases, sentence patterns you use.")
+        st.text_area("Do not say", key="dont_say", height=120, placeholder="Words, phrases, patterns you avoid.")
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-            if st.button("Back"):
-                st.session_state.step = 2
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-        with c2:
-            if st.button("Continue"):
-                st.session_state.step = 4
-                st.rerun()
+        def go_back():
+            st.session_state.step = 2
+            st.rerun()
+
+        def go_next():
+            st.session_state.step = 4
+            st.rerun()
+
+        action_bar("Back", "secondary", go_back, "Continue", "primary", go_next)
 
 
 def step_4():
@@ -824,11 +983,11 @@ def step_4():
         section_tag="Section 4",
         num="04",
         name="Visual direction",
-        desc="Give designers a clear lane: look, palette logic, typography intent, imagery rules.",
-        tip="Describe decisions. Not vibes. Rules should survive different designers.",
+        desc="Give designers a lane: look, palette logic, typography intent, imagery rules.",
+        tip="Describe decisions, not vibes. Rules should survive different designers.",
         guide_title="Art direction notes",
-        guide_text="Keywords, avoids, and a few rules about composition and texture.",
-        guide_chips=["Style", "Color logic", "Typography", "Imagery"],
+        guide_text="Keywords, avoids, and rules about composition and texture.",
+        guide_chips=["Style", "Color", "Type", "Imagery"],
         guide_img="https://images.unsplash.com/photo-1557682250-33bd709cbe85?q=80&w=1200&auto=format&fit=crop",
     )
 
@@ -837,56 +996,48 @@ def step_4():
             """
             <div class="panel formPanel">
               <div class="formTitle">Visual direction</div>
-              <div class="formSub">We will translate this into a designer friendly brief.</div>
+              <div class="formSub">We translate this into designer friendly direction.</div>
               <div class="hr"></div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        st.text_area("Visual style", key="visual_style", height=70, placeholder="Example: minimal, high contrast, editorial, precise grid.")
-        st.text_area("Color direction", key="colors", height=80, placeholder="Palette logic. Example: one primary, one neutral system, one accent.")
-        st.text_area("Typography direction", key="typography", height=80, placeholder="Font qualities. Example: modern sans, strong numerals, readable UI.")
-        st.text_area("Imagery direction", key="imagery", height=80, placeholder="Photo and illustration rules. Example: candid, natural light, low saturation.")
+        st.text_area("Visual style", key="visual_style", height=90, placeholder="Example: minimal, high contrast, editorial, precise grid.")
+        st.text_area("Color direction", key="colors", height=100, placeholder="Palette logic. Example: one primary, one neutral system, one accent.")
+        st.text_area("Typography direction", key="typography", height=100, placeholder="Font qualities. Example: modern sans, strong numerals, readable UI.")
+        st.text_area("Imagery direction", key="imagery", height=100, placeholder="Photo and illustration rules. Example: candid, natural light, low saturation.")
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-            if st.button("Back"):
-                st.session_state.step = 3
-                st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
-        with c2:
-            if st.button("Unlock and generate"):
-                st.session_state.view = "pay"
-                st.rerun()
+        def go_back():
+            st.session_state.step = 3
+            st.rerun()
+
+        def go_next():
+            st.session_state.view = "pay"
+            st.rerun()
+
+        action_bar("Back", "secondary", go_back, "Unlock and generate", "primary", go_next)
 
 
 # -----------------------------------------------------------------------------
-# PAYMENT MOCK
+# PAYMENT
 # -----------------------------------------------------------------------------
 def render_pay():
     st.markdown(
         """
-        <div class="glass wizardShell">
-          <div class="wizardTop">
-            <div style="display:flex; align-items:center;">
-              <span class="brandDot"></span>
-              <div>
-                <div class="topTitle">Unlock</div>
-                <div class="topSub">One time purchase. Client ready PDF.</div>
-              </div>
-            </div>
-            <div class="dotRow"></div>
-          </div>
+        <div class="glass" style="padding:22px;">
+        """,
+        unsafe_allow_html=True,
+    )
+    render_wizard_top()
 
-          <div class="panel" style="padding:26px; border-radius:22px; max-width:720px; margin: 0 auto;">
-            <div class="h-eyebrow">Total</div>
-            <div style="font-size:42px; font-weight:800; letter-spacing:-0.02em; margin-top:6px;">99.00</div>
-            <div class="small-muted" style="margin-top:6px;">One time strategic investment.</div>
-            <div class="hr"></div>
-            <div class="small-muted">Payment is mocked here. Replace with your checkout.</div>
-          </div>
+    st.markdown(
+        """
+        <div class="panel" style="padding:26px; border-radius:22px; max-width:760px; margin: 0 auto;">
+          <div class="h-eyebrow">Total</div>
+          <div style="font-size:42px; font-weight:800; letter-spacing:-0.02em; margin-top:6px;">99.00</div>
+          <div class="small-muted" style="margin-top:6px;">Mocked payment screen. Replace with your checkout.</div>
+          <div class="hr"></div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -895,110 +1046,41 @@ def render_pay():
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
         if not st.session_state.payment_ok:
-            if st.button("Confirm purchase"):
+            if st.button("Confirm purchase", use_container_width=True):
                 st.session_state.payment_ok = True
                 st.rerun()
         else:
             st.success("Verified.")
-            if st.button("Generate PDF"):
+            if st.button("Generate PDF", use_container_width=True):
                 st.session_state.view = "generate"
-                st.session_state.gen_status = "idle"
+                st.session_state.generated_text = ""
+                st.session_state.gen_running = False
                 st.session_state.gen_error = ""
+                st.session_state.cancel_requested = False
                 st.rerun()
 
+    st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back to editor"):
+        st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+        if st.button("Back to editor", use_container_width=True):
             st.session_state.view = "wizard"
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
 # GENERATION
 # -----------------------------------------------------------------------------
-def build_prompt() -> str:
-    company = st.session_state.company_name.strip()
-    industry = st.session_state.industry.strip()
-
-    site = st.session_state.website.strip()
-    signals = st.session_state.website_signals.strip()
-
-    parts = []
-    parts.append("Role: world class brand strategist and editorial designer.")
-    parts.append("Output: a brand bible in markdown. It must feel premium, usable, and specific.")
-    parts.append("Avoid fluff. Avoid vague adjectives without rules or examples.")
-    parts.append("")
-    parts.append(f"Brand: {company}")
-    parts.append(f"Industry: {industry}")
-    if site:
-        parts.append(f"Website: {site}")
-    parts.append("")
-    parts.append("Inputs")
-    parts.append(f"Audience: {st.session_state.audience}")
-    parts.append(f"Offer: {st.session_state.offer}")
-    parts.append(f"Proof: {st.session_state.proof}")
-    parts.append("")
-    parts.append(f"Voice reference: {st.session_state.voice}")
-    parts.append(f"Do say: {st.session_state.do_say}")
-    parts.append(f"Do not say: {st.session_state.dont_say}")
-    parts.append("")
-    parts.append(f"Visual style: {st.session_state.visual_style}")
-    parts.append(f"Color direction: {st.session_state.colors}")
-    parts.append(f"Typography direction: {st.session_state.typography}")
-    parts.append(f"Imagery direction: {st.session_state.imagery}")
-    parts.append("")
-
-    if signals:
-        parts.append("Website signals")
-        parts.append("Use these as evidence for tone and claims. If unclear, do not invent.")
-        parts.append(signals[:2500])
-        parts.append("")
-
-    parts.append("Structure")
-    parts.append(f"# {company}")
-    parts.append("## Executive summary")
-    parts.append("## Positioning")
-    parts.append("Include category, audience focus, and defendable edge.")
-    parts.append("## Messaging system")
-    parts.append("Include key messages, proof points, tagline options, and a short elevator pitch.")
-    parts.append("## Voice and tone")
-    parts.append("Include principles, do and do not lists, and 6 example sentences in the voice.")
-    parts.append("## Visual direction")
-    parts.append("Include palette logic, typography intent, layout rules, imagery rules, and what to avoid.")
-    parts.append("## Quick start")
-    parts.append("A one page summary with bullets that a team can paste into a doc.")
-    parts.append("")
-    parts.append("Quality bar")
-    parts.append("It should read like a small agency deliverable. Tight, confident, usable.")
-    parts.append("No invented awards or fake history. If unsure, frame as options.")
-    return "\n".join(parts)
-
-
-def cancel_generation_go_back():
-    st.session_state.gen_status = "idle"
-    st.session_state.gen_error = ""
-    st.session_state.generated_text = ""
-    st.session_state.view = "wizard"
-    st.session_state.step = 4
-    st.rerun()
-
-
-def run_generation_once():
-    if not st.session_state.api_key:
-        raise RuntimeError("Missing API key.")
-
-    genai.configure(api_key=st.session_state.api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
-
-    prompt = build_prompt()
-    text = gemini_generate_with_timeout(model, prompt, timeout_s=35, retries=1)
-    return text
-
-
 def render_generate():
-    st.markdown('<div class="glass wizardShell">', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="glass" style="padding:22px;">
+        """,
+        unsafe_allow_html=True,
+    )
     render_wizard_top()
 
     st.markdown(
@@ -1012,15 +1094,78 @@ def render_generate():
         unsafe_allow_html=True,
     )
 
-    # Centered cancel button
+    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
+
     c1, c2, c3 = st.columns([1, 1, 1])
     with c2:
-        st.markdown('<div class="dangerBtn">', unsafe_allow_html=True)
-        if st.button("Cancel generation"):
-            cancel_generation_go_back()
+        st.markdown("<div class='dangerBtn'>", unsafe_allow_html=True)
+        if st.button("Cancel generation", use_container_width=True):
+            st.session_state.cancel_requested = True
+            st.session_state.gen_running = False
+            st.session_state.generated_text = ""
+            st.session_state.gen_error = ""
+            st.session_state.view = "wizard"
+            st.session_state.step = 4
+            st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # If we already have output, show download
+    if not st.session_state.api_key:
+        st.error("Missing API key.")
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c2:
+            st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+            if st.button("Back", use_container_width=True):
+                st.session_state.view = "wizard"
+                st.session_state.step = 1
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    if (not st.session_state.generated_text) and (not st.session_state.gen_running) and (not st.session_state.gen_error):
+        st.session_state.gen_running = True
+        st.session_state.cancel_requested = False
+
+        status = st.empty()
+        progress = st.progress(0)
+
+        try:
+            status.info("Preparing prompt...")
+            progress.progress(15)
+
+            prompt = build_prompt()
+            status.info("Contacting Gemini...")
+            progress.progress(45)
+
+            text = gemini_generate_with_timeout(prompt, timeout_s=45, retries=1)
+
+            status.info("Formatting output...")
+            progress.progress(90)
+
+            st.session_state.generated_text = text
+            st.session_state.gen_running = False
+
+            progress.progress(100)
+            status.empty()
+
+            st.rerun()
+
+        except Exception as e:
+            st.session_state.gen_running = False
+            st.session_state.gen_error = str(e)
+            status.empty()
+            st.rerun()
+
+    if st.session_state.gen_error:
+        st.error(st.session_state.gen_error)
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c2:
+            if st.button("Retry", use_container_width=True):
+                st.session_state.gen_error = ""
+                st.session_state.generated_text = ""
+                st.session_state.gen_running = False
+                st.rerun()
+
     if st.session_state.generated_text:
         md = normalize_whitespace(st.session_state.generated_text)
         pdf_bytes = pdf_from_markdown(md, st.session_state.company_name or "Brand")
@@ -1033,65 +1178,19 @@ def render_generate():
             mime="application/pdf",
         )
 
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Start new"):
-            keep = {"view", "step", "do_transition"}
-            for k in list(st.session_state.keys()):
-                if k not in keep:
-                    st.session_state.pop(k, None)
-            st.session_state.view = "landing"
-            st.session_state.step = 1
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # If error already recorded, show it and allow retry
-    if st.session_state.gen_status == "error":
-        st.error(st.session_state.gen_error or "Generation failed.")
+        st.markdown("<div style='height:12px;'></div>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2:
-            if st.button("Retry"):
-                st.session_state.gen_status = "idle"
-                st.session_state.gen_error = ""
+            st.markdown("<div class='secondaryBtn'>", unsafe_allow_html=True)
+            if st.button("Start new", use_container_width=True):
+                keep = {"view", "step", "do_transition"}
+                for k in list(st.session_state.keys()):
+                    if k not in keep:
+                        st.session_state.pop(k, None)
+                st.session_state.view = "landing"
+                st.session_state.step = 1
                 st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    # Run generation only once per visit to this view
-    if st.session_state.gen_status == "idle":
-        st.session_state.gen_status = "running"
-        st.rerun()
-
-    if st.session_state.gen_status == "running":
-        status = st.empty()
-        progress = st.progress(0)
-
-        try:
-            status.info("Preparing prompt...")
-            progress.progress(15)
-
-            status.info("Contacting Gemini...")
-            progress.progress(35)
-
-            text = run_generation_once()
-
-            progress.progress(85)
-            status.info("Formatting output...")
-
-            st.session_state.generated_text = text
-            st.session_state.gen_status = "done"
-
-            progress.progress(100)
-            status.empty()
-            st.rerun()
-
-        except Exception as e:
-            status.empty()
-            st.session_state.gen_status = "error"
-            st.session_state.gen_error = str(e)
-            st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1105,7 +1204,7 @@ if st.session_state.view == "landing":
     render_landing()
 
 elif st.session_state.view == "wizard":
-    st.markdown('<div class="glass wizardShell">', unsafe_allow_html=True)
+    st.markdown("<div class='glass' style='padding:22px;'>", unsafe_allow_html=True)
     render_wizard_top()
 
     if st.session_state.step == 1:
