@@ -1,44 +1,69 @@
+import json
+import re
 import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+import concurrent.futures
+
 import streamlit as st
 import google.generativeai as genai
-from fpdf import FPDF
-import concurrent.futures
+
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
 
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
 
 
+# =========================
+# Session state
+# =========================
 def ss_init():
     defaults = {
-        "view": "landing",
-        "company": "",
-        "industry": "",
-        "api_key": "",
-        "result_text": "",
+        "view": "landing",  # landing, commitment, wizard, confirm, generate, done
+        "step_index": 0,
+        "answers": {},
+        "gen_used": 0,
+        "gen_max": 5,
+        "refine_mode": False,
+        "refine_sections": [],
+        "brand_name": "",
+        "last_json": None,
+        "pdf_bytes": None,
         "model_used": "",
-        "last_error": "",
+        "error": "",
+        "debug_last_raw": "",
+        "api_key": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
+    # API key should be server side in production.
+    # For local dev, set GEMINI_API_KEY in secrets.toml
     if not st.session_state.api_key:
-        st.session_state.api_key = st.secrets.get("GEMINI_API_KEY", "") or ""
+        st.session_state.api_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
 
 
-def reset_app_state(keep_api_key: bool = True):
-    api_key = st.session_state.get("api_key", "")
+def reset_for_new_brand(keep_api_key: bool = True):
+    api_key = st.session_state.api_key
     st.session_state.view = "landing"
-    st.session_state.company = ""
-    st.session_state.industry = ""
-    st.session_state.result_text = ""
+    st.session_state.step_index = 0
+    st.session_state.answers = {}
+    st.session_state.refine_mode = False
+    st.session_state.refine_sections = []
+    st.session_state.brand_name = ""
+    st.session_state.last_json = None
+    st.session_state.pdf_bytes = None
     st.session_state.model_used = ""
-    st.session_state.last_error = ""
-    if not keep_api_key:
-        st.session_state.api_key = ""
-        st.session_state.api_key = st.secrets.get("GEMINI_API_KEY", "") or ""
+    st.session_state.error = ""
+    st.session_state.debug_last_raw = ""
+    if keep_api_key:
+        st.session_state.api_key = api_key
     else:
-        st.session_state.api_key = api_key or (st.secrets.get("GEMINI_API_KEY", "") or "")
+        st.session_state.api_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
 
 
 def go(view: str):
@@ -46,73 +71,331 @@ def go(view: str):
     st.rerun()
 
 
+# =========================
+# CSS (fullscreen modern)
+# =========================
 def inject_css():
     st.markdown(
         """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+/* Hide Streamlit chrome */
+#MainMenu { visibility: hidden; }
+footer { visibility: hidden; }
+header { visibility: hidden; }
 
-html, body, [class*="css"] { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+/* Layout */
 .block-container { max-width: 1100px; padding-top: 2.4rem; padding-bottom: 3.2rem; }
 
-h1, h2, h3 { letter-spacing: -0.02em; }
-.smallNote { font-size: 12px; opacity: 0.75; }
+/* Typography */
+:root {
+  --bg: #0b0d11;
+  --fg: rgba(235,240,255,0.92);
+  --muted: rgba(235,240,255,0.70);
+  --muted2: rgba(235,240,255,0.55);
+  --card: rgba(255,255,255,0.06);
+  --card2: rgba(255,255,255,0.04);
+  --stroke: rgba(255,255,255,0.10);
+  --accent: #1c7dff;
+}
 
-div.stButton > button {
+html, body { background: var(--bg); color: var(--fg); }
+.stApp {
+  background:
+    radial-gradient(1100px 700px at 20% 35%, rgba(0,120,255,0.18), rgba(0,0,0,0) 60%),
+    radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0) 55%),
+    #0b0d11;
+}
+
+h1, h2, h3 { letter-spacing: -0.02em; }
+p { color: var(--muted); }
+
+.card {
+  background: linear-gradient(180deg, var(--card), var(--card2));
+  border: 1px solid var(--stroke);
+  border-radius: 22px;
+  padding: 28px;
+  box-shadow: 0 30px 120px rgba(0,0,0,0.55);
+  backdrop-filter: blur(14px);
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted2);
+  margin-bottom: 10px;
+}
+
+.heroTitle {
+  font-size: 52px;
+  line-height: 1.05;
+  font-weight: 800;
+  margin: 0 0 10px 0;
+}
+
+.heroSub {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin-bottom: 18px;
+  max-width: 820px;
+}
+
+hr.soft {
+  border: none;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+  margin: 18px 0;
+}
+
+.pills { display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px; }
+.pill {
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(235,240,255,0.75);
+}
+
+.bigBtn div.stButton > button {
+  width: 280px;
+  height: 54px;
+  border-radius: 999px;
+  font-size: 18px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #1c7dff, #0d5fe9) !important;
+  border: 1px solid rgba(255,255,255,0.14) !important;
+  box-shadow: 0 18px 50px rgba(0,110,255,0.35);
+}
+.bigBtn div.stButton > button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 22px 66px rgba(0,110,255,0.45);
+}
+
+.secondaryBtn div.stButton > button {
+  height: 44px;
   border-radius: 14px;
   font-weight: 800;
-  height: 46px;
-  padding: 0 18px;
+  background: rgba(255,255,255,0.06) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
 }
 
-div.stTextInput input {
-  border-radius: 12px;
+.smallNote { font-size: 12px; color: rgba(235,240,255,0.58); }
+
+/* Inputs */
+label {
+  font-size: 11px !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(235,240,255,0.55) !important;
+  font-weight: 700 !important;
 }
+.stTextInput input, .stTextArea textarea {
+  background: rgba(255,255,255,0.05) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+  border-radius: 14px !important;
+  color: rgba(235,240,255,0.92) !important;
+}
+.stTextInput input:focus, .stTextArea textarea:focus {
+  border: 1px solid rgba(28,125,255,0.75) !important;
+  box-shadow: 0 0 0 5px rgba(28,125,255,0.18) !important;
+}
+
+/* Fade in */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.fadeIn { animation: fadeIn 220ms ease-out; }
 </style>
 """,
         unsafe_allow_html=True,
     )
 
 
-def pdf_bytes(text: str) -> bytes:
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=14)
-    pdf.set_font("Arial", size=11)
-
-    safe = (
-        text.replace("\u2018", "'")
-        .replace("\u2019", "'")
-        .replace("\u201c", '"')
-        .replace("\u201d", '"')
-        .replace("\u2026", "...")
-    )
-    safe = safe.encode("latin-1", "replace").decode("latin-1")
-
-    for line in safe.split("\n"):
-        pdf.multi_cell(0, 6, line)
-
-    return pdf.output(dest="S").encode("latin-1")
+# =========================
+# Intake data
+# =========================
+@dataclass
+class Section:
+    id: str
+    title: str
+    one_liner: str
+    est_minutes: int
 
 
-def build_prompt(company: str, industry: str) -> str:
-    company = company.strip()
-    industry = industry.strip()
-    return (
-        "You are a senior brand strategist and editorial designer.\n\n"
-        f"Brand: {company}\n"
-        f"Industry: {industry}\n\n"
-        "Write a brand bible in markdown with:\n"
-        "1) Executive summary\n"
-        "2) Positioning\n"
-        "3) Messaging system (key messages and proof points)\n"
-        "4) Voice rules (do say and do not say, with 6 example sentences)\n"
-        "5) Visual direction (palette logic, typography intent, imagery rules, what to avoid)\n\n"
-        "Be concrete. No fluff. No invented awards. If uncertain, present options.\n"
-    )
+@dataclass
+class Question:
+    id: str
+    section_id: str
+    title: str
+    microcopy: str
+    qtype: str  # text, textarea, cards, checkboxes
+    placeholder: str = ""
+    options: list | None = None
+    required: bool = True
+    answer_key: str = ""
 
 
-def available_model_names() -> list[str]:
+SECTIONS = [
+    Section("foundation", "Foundation", "Strong brands are built on decisions, not descriptions.", 3),
+    Section("audience", "Audience", "People buy relief, status or clarity. Decide which one you deliver.", 3),
+    Section("positioning", "Positioning", "If you do not define your position, the market will do it for you.", 3),
+    Section("voice", "Voice", "Tone is what people remember when they forget details.", 3),
+    Section("visual", "Visual direction", "Taste is a strategy, not decoration.", 3),
+]
+
+QUESTIONS = [
+    # Foundation
+    Question("q1", "foundation", "Brand name", "The name is the anchor. Everything else follows.", "text",
+             placeholder="Example: Oura", answer_key="brand_name"),
+    Question("q2", "foundation", "Define the brand in one sentence",
+             "If this is vague, the rest will be noise.", "textarea",
+             placeholder="We help ... by ...", answer_key="one_sentence"),
+    Question("q3", "foundation", "Why does this brand deserve to exist",
+             "Not your origin story. The reason this matters.", "textarea",
+             placeholder="Because ...", answer_key="why_exist"),
+    Question("q4", "foundation", "What is the misunderstood problem you are here to fix",
+             "The market's lazy assumption that you reject.", "textarea",
+             placeholder="Most people think ... but ...", answer_key="misunderstood_problem"),
+    Question("q5", "foundation", "What do you sell in reality",
+             "Not the product. The outcome people pay for.", "textarea",
+             placeholder="We sell ...", answer_key="real_outcome"),
+    Question("q6", "foundation", "What is your hard no",
+             "The boundary that keeps the brand clean.", "textarea",
+             placeholder="We will never ...", answer_key="hard_no"),
+
+    # Audience
+    Question("q7", "audience", "Describe one core customer you would recognize instantly",
+             "Write one real person, not a segment.", "textarea",
+             placeholder="They are ... They care about ...", answer_key="core_customer"),
+    Question("q8", "audience", "What do they want but rarely say out loud",
+             "This lever is where competitors usually fail.", "textarea",
+             placeholder="Secretly they want ...", answer_key="secret_want"),
+    Question("q9", "audience", "What stops them from buying",
+             "Name the objection in their words.", "textarea",
+             placeholder="I am not sure because ...", answer_key="primary_objection"),
+    Question("q10", "audience", "What convinces them",
+             "Proof they trust, not claims you like.", "textarea",
+             placeholder="They trust ...", answer_key="trust_trigger"),
+    Question("q11", "audience", "What misconception about your category must be broken",
+             "The myth you refuse to repeat.", "textarea",
+             placeholder="People assume ...", answer_key="category_myth"),
+    Question("q12", "audience", "What is the worst experience they could have with you",
+             "Define what must never happen.", "textarea",
+             placeholder="They must never feel ...", answer_key="worst_experience"),
+
+    # Positioning
+    Question("q13", "positioning", "What brand do you refuse to resemble",
+             "Your anti model clarifies you fast.", "textarea",
+             placeholder="We refuse to feel like ...", answer_key="anti_brand"),
+    Question("q14", "positioning", "Finish this sentence: They are the brand that ...",
+             "Write the truth, not a slogan.", "textarea",
+             placeholder="They are the brand that ...", answer_key="positioning_sentence"),
+    Question("q15", "positioning", "What is your unfair advantage",
+             "Hard to copy, even with money.", "textarea",
+             placeholder="We have ... that others cannot ...", answer_key="unfair_advantage"),
+    Question("q16", "positioning", "What wrong category do people place you in",
+             "Where people misfile you.", "text",
+             placeholder="Example: productivity app", answer_key="wrong_category"),
+    Question("q17", "positioning", "What category do you actually own",
+             "The simplest category that makes you instantly understood.", "text",
+             placeholder="Example: recovery tech", answer_key="right_category"),
+    Question("q18", "positioning", "Pick an animal that matches your posture and energy",
+             "Not cute. Useful shorthand.", "cards",
+             options=["Fox", "Hawk", "Panther", "Owl", "Dolphin", "Other"],
+             placeholder="", answer_key="animal"),
+
+    # Voice
+    Question("q19", "voice", "Three words you must sound like",
+             "If you choose friendly, you have chosen nothing.", "text",
+             placeholder="Example: precise, calm, bold", answer_key="tone_words"),
+    Question("q20", "voice", "Three banned words",
+             "If you use these, the brand becomes generic.", "text",
+             placeholder="Example: innovative, seamless, disruptive", answer_key="banned_words"),
+    Question("q21", "voice", "What is your signature belief",
+             "The opinion that creates gravity.", "textarea",
+             placeholder="We believe ...", answer_key="signature_belief"),
+    Question("q22", "voice", "Write one close sentence sales can use",
+             "If this is unclear, the brand is unclear.", "textarea",
+             placeholder="The simplest truth is ...", answer_key="close_sentence"),
+    Question("q23", "voice", "Write what a satisfied customer would say",
+             "Write it like a real person talking.", "textarea",
+             placeholder="Honestly, I ...", answer_key="customer_quote"),
+    Question("q24", "voice", "Choose your voice energy",
+             "Choose energy, not adjectives.", "cards",
+             options=["Calm", "Confident", "Bold", "Sharp", "Warm", "Clinical"],
+             answer_key="voice_energy"),
+
+    # Visual
+    Question("q25", "visual", "List 3 to 5 taste reference brands and why",
+             "Name them fast. One word why is enough.", "textarea",
+             placeholder="Brand: why\nBrand: why", answer_key="taste_refs"),
+    Question("q26", "visual", "Select vibes to avoid",
+             "What would instantly make you look wrong.", "checkboxes",
+             options=["Corporate", "Startup hype", "Luxury cliche", "Playful cartoon", "Sterile tech", "Lifestyle fluff", "Trend chasing"],
+             required=True, answer_key="avoid_vibes"),
+    Question("q27", "visual", "If the brand were a place, what place is it",
+             "This sets layout and atmosphere.", "cards",
+             options=["Gallery", "High end hotel", "Workshop", "Library", "Clinic", "Studio", "Other"],
+             answer_key="brand_place"),
+    Question("q28", "visual", "What should people feel before they understand",
+             "First impression matters more than features.", "cards",
+             options=["Calm", "Controlled", "Excited", "Safe", "Powerful", "Curious"],
+             answer_key="first_impression"),
+    Question("q29", "visual", "What must never appear in your visuals",
+             "Hard constraints save time later.", "textarea",
+             placeholder="Never use ...", answer_key="never_visuals"),
+    Question("q30", "visual", "What are you afraid this could become if done wrong",
+             "Name the failure mode.", "textarea",
+             placeholder="If we get this wrong, it becomes ...", answer_key="fear"),
+]
+
+
+def get_section(section_id: str) -> Section:
+    for s in SECTIONS:
+        if s.id == section_id:
+            return s
+    return SECTIONS[0]
+
+
+def build_wizard_steps(refine_mode: bool, refine_sections: list[str]) -> list[dict]:
+    steps: list[dict] = []
+    allowed_sections = set(refine_sections) if refine_mode else None
+
+    # Section intro steps
+    for sec in SECTIONS:
+        if allowed_sections is not None and sec.id not in allowed_sections:
+            continue
+        steps.append({"type": "section_intro", "section_id": sec.id})
+
+        for q in QUESTIONS:
+            if q.section_id != sec.id:
+                continue
+            steps.append({"type": "question", "question_id": q.id})
+
+    return steps
+
+
+def get_question(qid: str) -> Question:
+    for q in QUESTIONS:
+        if q.id == qid:
+            return q
+    raise KeyError(qid)
+
+
+# =========================
+# Gemini helpers
+# =========================
+PREFERRED_MODEL_CONTAINS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-2.0",
+    "gemini",
+]
+
+
+def list_generation_models() -> list[str]:
     models = []
     try:
         for m in genai.list_models():
@@ -126,20 +409,12 @@ def available_model_names() -> list[str]:
 
 
 def choose_models_to_try() -> list[str]:
-    preferred = [
-        "gemini-2.0-flash",
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0",
-        "gemini",
-    ]
-
-    avail = available_model_names()
+    avail = list_generation_models()
     if not avail:
-        return preferred
+        return PREFERRED_MODEL_CONTAINS[:]  # best effort fallback
 
-    chosen = []
-    for p in preferred:
+    chosen: list[str] = []
+    for p in PREFERRED_MODEL_CONTAINS:
         for n in avail:
             if p in n and n not in chosen:
                 chosen.append(n)
@@ -151,134 +426,878 @@ def choose_models_to_try() -> list[str]:
     return chosen
 
 
-def gemini_generate_text(prompt: str, timeout_s: int = 35) -> tuple[str, str]:
+def utc_date_str() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def build_schema_prompt(brand_name: str, answers: dict, version_str: str, is_refine: bool, refine_focus: str) -> str:
+    # Keep prompt in English for higher model consistency
+    answers_json = json.dumps(answers, ensure_ascii=False, indent=2)
+
+    role = (
+        "You are a senior brand strategist at a top tier agency.\n"
+        "Your job is not to describe. Your job is to decide.\n"
+        "Be opinionated, concise, and practical.\n"
+        "If input is vague, sharpen it.\n"
+        "If something is missing, make a reasonable decision and state it clearly.\n\n"
+        "Do not write essays.\n"
+        "Do not hedge.\n"
+        "Do not explain theory.\n"
+    )
+
+    refine_clause = ""
+    if is_refine:
+        refine_clause = (
+            "\nRefinement mode is active.\n"
+            "Refine the existing system.\n"
+            "Keep what works. Sharpen what is vague.\n"
+            "Do not reinvent unless necessary.\n"
+            f"Refinement focus: {refine_focus}\n"
+        )
+
+    task = (
+        "\nTASK\n"
+        "Based on the intake answers below, generate a brand bible as a decision system.\n\n"
+        "Return ONLY valid JSON that matches the schema exactly.\n"
+        "No markdown. No commentary. No extra keys.\n\n"
+        "Every field must be usable as is in a professional PDF.\n"
+    )
+
+    rules = (
+        "\nOUTPUT RULES\n"
+        "Write in clear, confident, declarative language.\n"
+        "Prefer rules over descriptions.\n"
+        "Prefer short sentences over long ones.\n"
+        "Avoid cliches, hype, and generic startup language.\n"
+        "Never say: this brand aims to\n"
+        "Never say: this brand seeks to\n"
+        "If something would weaken the brand, exclude it.\n"
+        "If forced to choose, choose clarity over politeness.\n"
+    )
+
+    schema = (
+        "\nJSON SCHEMA\n"
+        "{\n"
+        '  "meta": {\n'
+        '    "brand_name": "",\n'
+        '    "version": "",\n'
+        '    "generated_date": ""\n'
+        "  },\n\n"
+        '  "executive_summary": {\n'
+        '    "decisions": [""]\n'
+        "  },\n\n"
+        '  "positioning": {\n'
+        '    "positioning_statement": "",\n'
+        '    "category": "",\n'
+        '    "anti_position": ""\n'
+        "  },\n\n"
+        '  "audience": {\n'
+        '    "core_customer": "",\n'
+        '    "core_tension": "",\n'
+        '    "primary_objection": "",\n'
+        '    "trust_trigger": ""\n'
+        "  },\n\n"
+        '  "messaging": {\n'
+        '    "core_message": "",\n'
+        '    "key_messages": [\n'
+        '      { "message": "", "proof": "" }\n'
+        "    ]\n"
+        "  },\n\n"
+        '  "voice": {\n'
+        '    "principles": [""],\n'
+        '    "do_say": [""],\n'
+        '    "do_not_say": [""],\n'
+        '    "examples": { "before": "", "after": "" }\n'
+        "  },\n\n"
+        '  "visual_direction": {\n'
+        '    "intent": "",\n'
+        '    "feels_like": [""],\n'
+        '    "never_feels_like": [""]\n'
+        "  },\n\n"
+        '  "guardrails": {\n'
+        '    "failure_modes": [""]\n'
+        "  },\n\n"
+        '  "usage": {\n'
+        '    "how_to_use": [""]\n'
+        "  }\n"
+        "}\n"
+    )
+
+    # Provide meta values in prompt so model fills them correctly
+    input_block = (
+        "\nINPUT\n"
+        f"Brand name: {brand_name}\n"
+        f"Requested version: {version_str}\n"
+        f"Generated date (UTC): {utc_date_str()}\n\n"
+        "Intake answers JSON:\n"
+        f"{answers_json}\n"
+    )
+
+    final_check = (
+        "\nFINAL CHECK\n"
+        "If this document were handed to a design or content team:\n"
+        "They should argue less, decide faster, and sound consistent without trying.\n"
+        "If not, sharpen it.\n\n"
+        "Return JSON only.\n"
+    )
+
+    return role + refine_clause + task + rules + schema + input_block + final_check
+
+
+def extract_json_object(text: str) -> str:
+    t = (text or "").strip()
+    # If it is already valid JSON, return as is
+    if t.startswith("{") and t.endswith("}"):
+        return t
+    # Otherwise extract the first balanced object
+    m = re.search(r"\{.*\}", t, flags=re.DOTALL)
+    if not m:
+        raise ValueError("Model did not return JSON.")
+    return m.group(0).strip()
+
+
+def generate_schema_json(prompt: str, timeout_s: int = 35) -> tuple[dict, str, str]:
     models_to_try = choose_models_to_try()
     last_err = None
+    last_raw = ""
 
     for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name)
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
                 fut = ex.submit(model.generate_content, prompt)
                 resp = fut.result(timeout=timeout_s)
 
-            text = (getattr(resp, "text", "") or "").strip()
-            if not text:
-                raise RuntimeError("Empty response text.")
-            return text, model_name
+            raw = (getattr(resp, "text", "") or "").strip()
+            last_raw = raw
 
-        except concurrent.futures.TimeoutError as e:
+            json_str = extract_json_object(raw)
+            data = json.loads(json_str)
+
+            # Minimal sanity check for required keys
+            for k in ["meta", "executive_summary", "positioning", "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]:
+                if k not in data:
+                    raise ValueError("JSON missing required keys.")
+
+            return data, model_name, last_raw
+
+        except concurrent.futures.TimeoutError:
             last_err = RuntimeError(f"Timeout after {timeout_s} seconds.")
         except Exception as e:
             last_err = e
 
-    raise RuntimeError(f"Generation failed. Last error: {last_err}")
+    raise RuntimeError(f"Generation failed. Last error: {last_err}\nRaw: {last_raw[:220]}")
 
 
+def generate_with_retry(prompt: str, timeout_s: int = 35) -> tuple[dict, str, str]:
+    try:
+        return generate_schema_json(prompt, timeout_s=timeout_s)
+    except Exception:
+        # Retry once with stronger JSON-only suffix
+        tightened = prompt + "\nIMPORTANT: Return ONLY valid JSON. No extra text. No code fences.\n"
+        return generate_schema_json(tightened, timeout_s=timeout_s)
+
+
+# =========================
+# PDF rendering (ReportLab)
+# =========================
+def register_fonts():
+    # Optional: use built-in fonts if Inter not available
+    # ReportLab default fonts are fine for now.
+    # If you want custom fonts later, add TTF and register here.
+    pass
+
+
+def wrap_text(c: canvas.Canvas, text: str, x: float, y: float, max_width: float, font_name: str, font_size: int, leading: float) -> float:
+    c.setFont(font_name, font_size)
+    words = (text or "").split()
+    if not words:
+        return y
+
+    line = ""
+    for w in words:
+        test = (line + " " + w).strip()
+        if c.stringWidth(test, font_name, font_size) <= max_width:
+            line = test
+        else:
+            c.drawString(x, y, line)
+            y -= leading
+            line = w
+    if line:
+        c.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def draw_divider(c: canvas.Canvas, x: float, y: float, width: float):
+    c.setLineWidth(1)
+    c.setStrokeColorRGB(1, 1, 1, alpha=0.10)
+    c.line(x, y, x + width, y)
+
+
+def pdf_render(schema: dict) -> bytes:
+    register_fonts()
+    buf = bytearray()
+    # ReportLab canvas writes to file-like. Use BytesIO.
+    from io import BytesIO
+    b = BytesIO()
+    c = canvas.Canvas(b, pagesize=letter)
+    W, H = letter
+
+    margin = 54
+    x0 = margin
+    y0 = H - margin
+    content_w = W - 2 * margin
+
+    def new_page():
+        c.showPage()
+
+    def section_intro(title: str, one_liner: str):
+        new_page()
+        c.setFillColorRGB(1, 1, 1, alpha=0.92)
+        c.setFont("Helvetica-Bold", 26)
+        c.drawString(x0, H - margin - 40, title)
+        c.setFillColorRGB(1, 1, 1, alpha=0.70)
+        c.setFont("Helvetica", 12)
+        wrap_text(c, one_liner, x0, H - margin - 70, content_w, "Helvetica", 12, 16)
+        draw_divider(c, x0, H - margin - 92, content_w)
+
+    def decision_list(decisions: list[str]):
+        y = H - margin - 130
+        c.setFillColorRGB(1, 1, 1, alpha=0.92)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(x0, y, "Decisions")
+        y -= 18
+        draw_divider(c, x0, y, content_w)
+        y -= 22
+        c.setFillColorRGB(1, 1, 1, alpha=0.85)
+        for d in decisions[:5]:
+            c.setFont("Helvetica-Bold", 12)
+            bullet = "• "
+            c.drawString(x0, y, bullet)
+            y = wrap_text(c, d, x0 + 14, y, content_w - 14, "Helvetica", 12, 18) - 4
+
+    def body_text(text: str):
+        y = H - margin - 130
+        c.setFillColorRGB(1, 1, 1, alpha=0.85)
+        c.setFont("Helvetica", 12)
+        for para in (text or "").split("\n"):
+            para = para.strip()
+            if not para:
+                y -= 10
+                continue
+            y = wrap_text(c, para, x0, y, content_w, "Helvetica", 12, 16) - 6
+
+    def simple_list(items: list[str], title: str | None = None):
+        y = H - margin - 130
+        if title:
+            c.setFillColorRGB(1, 1, 1, alpha=0.92)
+            c.setFont("Helvetica-Bold", 12)
+            c.drawString(x0, y, title)
+            y -= 18
+            draw_divider(c, x0, y, content_w)
+            y -= 22
+        c.setFillColorRGB(1, 1, 1, alpha=0.85)
+        c.setFont("Helvetica", 12)
+        for it in (items or [])[:10]:
+            if not it:
+                continue
+            c.drawString(x0, y, "•")
+            y = wrap_text(c, it, x0 + 14, y, content_w - 14, "Helvetica", 12, 16) - 2
+
+    def do_dont(left_title: str, left_items: list[str], right_title: str, right_items: list[str]):
+        y = H - margin - 130
+        col_gap = 22
+        col_w = (content_w - col_gap) / 2
+        lx = x0
+        rx = x0 + col_w + col_gap
+
+        c.setFillColorRGB(1, 1, 1, alpha=0.92)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(lx, y, left_title)
+        c.drawString(rx, y, right_title)
+        y -= 14
+        draw_divider(c, x0, y, content_w)
+        y -= 18
+
+        ly = y
+        ry = y
+        c.setFillColorRGB(1, 1, 1, alpha=0.85)
+        c.setFont("Helvetica", 12)
+
+        for it in (left_items or [])[:8]:
+            if not it:
+                continue
+            c.drawString(lx, ly, "•")
+            ly = wrap_text(c, it, lx + 14, ly, col_w - 14, "Helvetica", 12, 16) - 2
+
+        for it in (right_items or [])[:8]:
+            if not it:
+                continue
+            c.drawString(rx, ry, "•")
+            ry = wrap_text(c, it, rx + 14, ry, col_w - 14, "Helvetica", 12, 16) - 2
+
+    def key_messages(items: list[dict]):
+        y = H - margin - 130
+        c.setFillColorRGB(1, 1, 1, alpha=0.92)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(x0, y, "Key messages")
+        y -= 18
+        draw_divider(c, x0, y, content_w)
+        y -= 22
+
+        for km in (items or [])[:3]:
+            msg = (km.get("message", "") or "").strip()
+            proof = (km.get("proof", "") or "").strip()
+            if not msg:
+                continue
+            c.setFillColorRGB(1, 1, 1, alpha=0.92)
+            c.setFont("Helvetica-Bold", 12)
+            y = wrap_text(c, msg, x0, y, content_w, "Helvetica-Bold", 12, 16)
+            if proof:
+                c.setFillColorRGB(1, 1, 1, alpha=0.80)
+                c.setFont("Helvetica", 11)
+                y = wrap_text(c, proof, x0 + 10, y, content_w - 10, "Helvetica", 11, 15)
+            y -= 10
+
+    def cover(meta: dict, positioning_line: str):
+        # Cover is page 1
+        c.setFillColorRGB(1, 1, 1, alpha=0.92)
+        c.setFont("Helvetica-Bold", 36)
+        brand = (meta.get("brand_name", "") or "").strip()
+        if not brand:
+            brand = "Brand"
+        c.drawString(x0, H - margin - 150, brand)
+
+        c.setFillColorRGB(1, 1, 1, alpha=0.75)
+        c.setFont("Helvetica", 14)
+        wrap_text(c, positioning_line, x0, H - margin - 190, content_w, "Helvetica", 14, 18)
+
+        c.setFillColorRGB(1, 1, 1, alpha=0.60)
+        c.setFont("Helvetica", 12)
+        c.drawString(x0, H - margin - 230, "Brand system and decision guide")
+
+        c.setFillColorRGB(1, 1, 1, alpha=0.55)
+        c.setFont("Helvetica", 10)
+        date_str = (meta.get("generated_date", "") or "").strip()
+        ver_str = (meta.get("version", "") or "").strip()
+        footer = f"Version {ver_str}   Generated {date_str}"
+        c.drawString(x0, margin + 18, footer)
+
+    data = schema or {}
+    meta = data.get("meta", {}) or {}
+    # fill meta safely if missing
+    if not meta.get("brand_name"):
+        meta["brand_name"] = (st.session_state.answers.get("brand_name", "") or "").strip() or "Brand"
+    if not meta.get("generated_date"):
+        meta["generated_date"] = utc_date_str()
+    if not meta.get("version"):
+        meta["version"] = str(st.session_state.gen_used + 1)
+
+    positioning = data.get("positioning", {}) or {}
+    cover(meta, (positioning.get("positioning_statement", "") or "").strip())
+    new_page()
+
+    # Executive summary
+    section_intro("Executive summary", "The decisions that keep this brand consistent.")
+    decisions = (data.get("executive_summary", {}) or {}).get("decisions", []) or []
+    decision_list([d for d in decisions if isinstance(d, str) and d.strip()][:5])
+
+    # Positioning
+    section_intro("Positioning", "Where this brand stands, and what it refuses to be.")
+    body_text((positioning.get("positioning_statement", "") or "").strip())
+    left = []
+    cat = (positioning.get("category", "") or "").strip()
+    if cat:
+        left.append(f"Category: {cat}")
+    anti = (positioning.get("anti_position", "") or "").strip()
+    right = [anti] if anti else []
+    do_dont("What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, or generic."])
+
+    # Audience
+    section_intro("Audience and insight", "One real customer, and what actually moves them.")
+    aud = data.get("audience", {}) or {}
+    aud_items = [
+        (aud.get("core_customer", "") or "").strip(),
+        (aud.get("core_tension", "") or "").strip(),
+        (aud.get("primary_objection", "") or "").strip(),
+        (aud.get("trust_trigger", "") or "").strip(),
+    ]
+    simple_list([x for x in aud_items if x], title="What to know")
+
+    # Messaging
+    section_intro("Messaging system", "Repeatable messages, backed by credible proof.")
+    msg = data.get("messaging", {}) or {}
+    core_message = (msg.get("core_message", "") or "").strip()
+    if core_message:
+        body_text(core_message)
+    key_messages(msg.get("key_messages", []) or [])
+
+    # Voice
+    section_intro("Voice", "Rules that stop the wrong words before they are written.")
+    voice = data.get("voice", {}) or {}
+    simple_list([x for x in (voice.get("principles", []) or []) if x], title="Principles")
+    do_dont(
+        "Do say",
+        [x for x in (voice.get("do_say", []) or []) if x],
+        "Do not say",
+        [x for x in (voice.get("do_not_say", []) or []) if x],
+    )
+    ex = voice.get("examples", {}) or {}
+    before = (ex.get("before", "") or "").strip()
+    after = (ex.get("after", "") or "").strip()
+    if before or after:
+        section_intro("Voice examples", "Before and after. Clear contrast.")
+        if before:
+            simple_list([before], title="Before")
+        if after:
+            simple_list([after], title="After")
+
+    # Visual direction
+    section_intro("Visual direction", "Taste and constraints, not design specs.")
+    vis = data.get("visual_direction", {}) or {}
+    intent = (vis.get("intent", "") or "").strip()
+    if intent:
+        body_text(intent)
+    do_dont(
+        "Feels like",
+        [x for x in (vis.get("feels_like", []) or []) if x],
+        "Never feels like",
+        [x for x in (vis.get("never_feels_like", []) or []) if x],
+    )
+
+    # Guardrails
+    section_intro("Guardrails", "How this brand gets ruined. Avoid these.")
+    guard = data.get("guardrails", {}) or {}
+    simple_list([x for x in (guard.get("failure_modes", []) or []) if x], title="Failure modes")
+
+    # Usage
+    section_intro("How to use this", "When to open this document, and what not to debate.")
+    usage = data.get("usage", {}) or {}
+    simple_list([x for x in (usage.get("how_to_use", []) or []) if x], title="Use it like this")
+
+    c.save()
+    pdf_bytes_out = b.getvalue()
+    b.close()
+    return pdf_bytes_out
+
+
+# =========================
+# UI components
+# =========================
+def card_start():
+    st.markdown('<div class="card fadeIn">', unsafe_allow_html=True)
+
+
+def card_end():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_progress(step_index: int, steps: list[dict]):
+    # Count only question steps for "Question Y of 30"
+    question_steps = [s for s in steps if s["type"] == "question"]
+    total_questions = len(question_steps)
+    # Map current step to question number
+    current_question_num = 0
+    if steps[step_index]["type"] == "question":
+        # Count questions up to and including this one
+        qid = steps[step_index]["question_id"]
+        for i, s in enumerate(question_steps, start=1):
+            if s["question_id"] == qid:
+                current_question_num = i
+                break
+    else:
+        # Section intro, show next question number as current
+        # Find next question step
+        for s in steps[step_index:]:
+            if s["type"] == "question":
+                qid = s["question_id"]
+                for i, qs in enumerate(question_steps, start=1):
+                    if qs["question_id"] == qid:
+                        current_question_num = i
+                        break
+                break
+        if current_question_num == 0:
+            current_question_num = total_questions
+
+    progress = min(max((step_index + 1) / max(len(steps), 1), 0.0), 1.0)
+    st.progress(progress)
+
+    # Section indicator
+    current_section_id = steps[step_index].get("section_id")
+    if steps[step_index]["type"] == "question":
+        current_section_id = get_question(steps[step_index]["question_id"]).section_id
+    sec = get_section(current_section_id or SECTIONS[0].id)
+    sec_index = [s.id for s in SECTIONS].index(sec.id) + 1
+
+    st.caption(f"Section {sec_index} of {len(SECTIONS)}   Question {current_question_num} of {total_questions}")
+
+
+def render_question_input(q: Question):
+    key = f"ans_{q.answer_key}"
+    current = st.session_state.answers.get(q.answer_key)
+
+    if q.qtype == "text":
+        val = st.text_input(q.title, value=current or "", placeholder=q.placeholder, key=key)
+        st.session_state.answers[q.answer_key] = val.strip()
+
+    elif q.qtype == "textarea":
+        val = st.text_area(q.title, value=current or "", placeholder=q.placeholder, height=160, key=key)
+        st.session_state.answers[q.answer_key] = val.strip()
+
+    elif q.qtype == "cards":
+        options = q.options or []
+        # Use radio styled by Streamlit
+        val = st.radio(q.title, options=options, index=options.index(current) if current in options else 0, key=key)
+        if val == "Other":
+            other_key = f"{key}_other"
+            other_val = st.text_input("Other", value=st.session_state.answers.get(q.answer_key + "_other", ""), key=other_key)
+            st.session_state.answers[q.answer_key + "_other"] = other_val.strip()
+            st.session_state.answers[q.answer_key] = "Other"
+        else:
+            st.session_state.answers[q.answer_key] = val
+
+    elif q.qtype == "checkboxes":
+        options = q.options or []
+        current_list = current if isinstance(current, list) else []
+        chosen = []
+        st.write(q.title)
+        for opt in options:
+            checked = opt in current_list
+            if st.checkbox(opt, value=checked, key=f"{key}_{opt}"):
+                chosen.append(opt)
+        st.session_state.answers[q.answer_key] = chosen
+
+    else:
+        st.session_state.answers[q.answer_key] = current or ""
+
+
+def validate_current_step(step: dict) -> tuple[bool, str]:
+    if step["type"] != "question":
+        return True, ""
+
+    q = get_question(step["question_id"])
+    val = st.session_state.answers.get(q.answer_key)
+
+    if not q.required:
+        return True, ""
+
+    if q.answer_key == "brand_name":
+        if not (val or "").strip():
+            return False, "Brand name is required."
+        return True, ""
+
+    if q.qtype == "checkboxes":
+        if not isinstance(val, list) or len(val) == 0:
+            return False, "Select at least one option."
+        return True, ""
+
+    if not val or (isinstance(val, str) and not val.strip()):
+        return False, "Please write a short answer to continue."
+    return True, ""
+
+
+# =========================
+# Views
+# =========================
 def landing_view():
-    st.title("Brand Bible Generator")
-    st.caption("Streamlit + Gemini + PDF output")
+    card_start()
+    st.markdown('<div class="eyebrow">Brand system generator</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle">Build a brand that stays consistent when you are not in the room</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="heroSub">A guided brand interview that turns strategy, voice and visual direction into a clear, usable brand bible you can actually follow.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <div class="pills">
+          <div class="pill">Decision system</div>
+          <div class="pill">Non boring intake</div>
+          <div class="pill">PDF deliverable</div>
+          <div class="pill">Built like an agency</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    col1, col2 = st.columns([2, 1], gap="large")
+    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
+
+    col1, col2 = st.columns([3, 2], gap="large")
     with col1:
-        st.subheader("Make your brand bible feel designed")
-        st.write(
-            "A short workflow that produces a usable PDF. "
-            "No HTML should appear as text. API key should work reliably."
-        )
+        st.subheader("Why a brand bible matters")
+        st.write("Most brands do not fail because of bad ideas.")
+        st.write("They fail because nothing is defined.")
+        st.write("A brand bible is not a document. It is a decision system.")
         st.write("")
-
-        if st.button("Start"):
-            go("inputs")
-
-        st.write("")
-        st.markdown('<div class="smallNote">Tip: set GEMINI_API_KEY in secrets.toml to avoid typing it.</div>', unsafe_allow_html=True)
+        st.write("With a brand system, teams decide faster, argue less, and stay consistent without trying.")
 
     with col2:
-        st.info(
-            "Flow\n\n"
-            "1) Inputs\n"
-            "2) Generate\n"
-            "3) Download PDF"
-        )
+        st.subheader("What you get")
+        st.write("Positioning and category clarity")
+        st.write("Messaging system with proof points")
+        st.write("Voice rules with examples")
+        st.write("Visual direction and guardrails")
+        st.write("")
+        st.caption("One time purchase. Includes room to refine.")
+
+    st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
+    if st.button("Start brand interview"):
+        go("commitment")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if not st.session_state.api_key:
+        st.info("Developer note: Set GEMINI_API_KEY in secrets.toml for generation to work.")
+        with st.expander("Developer settings"):
+            st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
+
+    st.markdown('<div class="smallNote">Includes 5 generations. Most people use 2 to 3.</div>', unsafe_allow_html=True)
+    card_end()
 
 
-def inputs_view():
-    st.title("Brand inputs")
+def commitment_view():
+    card_start()
+    st.markdown('<div class="eyebrow">Before we start</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">A quick guided interview</div>', unsafe_allow_html=True)
+    st.write("Takes about 12 to 15 minutes.")
+    st.write("One question at a time.")
+    st.write("You can pause and resume at any time.")
+    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
-    st.text_input("Brand name", key="company", placeholder="Example: Oura")
-    st.text_input("Industry", key="industry", placeholder="Example: Health tech")
-    st.text_input("Gemini API key", key="api_key", type="password", placeholder="Paste your key")
-
-    c1, c2 = st.columns([1, 1])
-    with c1:
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
         if st.button("Back"):
             go("landing")
-    with c2:
-        if st.button("Generate brand bible"):
-            if not st.session_state.company.strip():
-                st.error("Brand name is required.")
-                return
-            if not st.session_state.api_key.strip():
-                st.error("API key is required.")
-                return
+        st.markdown("</div>", unsafe_allow_html=True)
+    with col2:
+        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
+        if st.button("Begin interview"):
+            st.session_state.refine_mode = False
+            st.session_state.refine_sections = []
+            st.session_state.step_index = 0
+            go("wizard")
+        st.markdown("</div>", unsafe_allow_html=True)
+    card_end()
+
+
+def wizard_view():
+    steps = build_wizard_steps(st.session_state.refine_mode, st.session_state.refine_sections)
+    if not steps:
+        st.session_state.error = "Wizard has no steps."
+        go("landing")
+        return
+
+    # Clamp step index
+    st.session_state.step_index = max(0, min(st.session_state.step_index, len(steps) - 1))
+    step = steps[st.session_state.step_index]
+
+    card_start()
+    render_progress(st.session_state.step_index, steps)
+    st.write("")
+
+    # Unique fade wrapper per step by injecting a unique html id
+    st.markdown(f'<div class="fadeIn" id="step_{st.session_state.step_index}">', unsafe_allow_html=True)
+
+    if step["type"] == "section_intro":
+        sec = get_section(step["section_id"])
+        st.subheader(sec.title)
+        st.write(sec.one_liner)
+        st.caption(f"{sec.est_minutes} minutes")
+
+    else:
+        q = get_question(step["question_id"])
+
+        # Brand name is also stored in dedicated state for convenience
+        if q.answer_key == "brand_name":
+            st.session_state.brand_name = (st.session_state.answers.get("brand_name", "") or "").strip()
+
+        st.subheader(q.title)
+        st.caption(q.microcopy)
+        render_question_input(q)
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.write("")
+    left, right = st.columns([1, 1])
+    with left:
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back", key="wiz_back"):
+            if st.session_state.step_index > 0:
+                st.session_state.step_index -= 1
+                st.rerun()
+            else:
+                go("commitment")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
+        next_label = "Continue" if step["type"] == "section_intro" else "Next"
+        if st.button(next_label, key="wiz_next"):
+            ok, msg = validate_current_step(step)
+            if not ok:
+                st.error(msg)
+            else:
+                if st.session_state.step_index >= len(steps) - 1:
+                    go("confirm")
+                else:
+                    st.session_state.step_index += 1
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    card_end()
+
+
+def confirm_view():
+    card_start()
+    st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">This is enough to build a real brand system</div>', unsafe_allow_html=True)
+    st.write("You will get positioning, messaging, voice rules, visual direction, and guardrails.")
+    st.caption("Agencies typically charge thousands for this step.")
+    st.write("")
+    st.write(f"Generations remaining: {max(st.session_state.gen_max - st.session_state.gen_used, 0)} of {st.session_state.gen_max}")
+
+    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
+
+    with st.expander("Review your inputs", expanded=False):
+        # Show a short review, not the whole wall
+        brand = (st.session_state.answers.get("brand_name", "") or "").strip()
+        st.write(f"Brand: {brand or 'Not set'}")
+        st.write(f"Answered fields: {len([k for k, v in st.session_state.answers.items() if v])}")
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back to interview"):
+            go("wizard")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        remaining = st.session_state.gen_max - st.session_state.gen_used
+        disabled = remaining <= 0
+        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
+        if st.button("Generate brand bible", disabled=disabled):
             go("generate")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        if disabled:
+            st.info("No generations remaining. Start a new brand or add more generations later.")
+
+    card_end()
 
 
 def generate_view():
-    st.title("Generating")
+    card_start()
+    st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your brand bible</div>', unsafe_allow_html=True)
+    st.write("This usually takes under a minute.")
+    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     api_key = (st.session_state.api_key or "").strip()
     if not api_key:
-        st.error("Missing API key.")
-        if st.button("Back to inputs"):
-            go("inputs")
+        st.error("Missing API key. Set GEMINI_API_KEY in secrets.toml.")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back"):
+            go("landing")
+        st.markdown("</div>", unsafe_allow_html=True)
+        card_end()
         return
+
+    remaining = st.session_state.gen_max - st.session_state.gen_used
+    if remaining <= 0:
+        st.error("No generations remaining.")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back"):
+            go("done" if st.session_state.pdf_bytes else "confirm")
+        st.markdown("</div>", unsafe_allow_html=True)
+        card_end()
+        return
+
+    st.session_state.error = ""
+    st.session_state.model_used = ""
+    st.session_state.debug_last_raw = ""
 
     genai.configure(api_key=api_key)
 
-    prompt = build_prompt(st.session_state.company, st.session_state.industry)
+    brand = (st.session_state.answers.get("brand_name", "") or "").strip() or "Brand"
+    version_str = str(st.session_state.gen_used + 1)
 
-    st.session_state.last_error = ""
-    st.session_state.result_text = ""
-    st.session_state.model_used = ""
+    refine_focus = "Everything"
+    if st.session_state.refine_mode and st.session_state.refine_sections:
+        # simple focus label
+        refine_focus = ", ".join(st.session_state.refine_sections)
 
-    with st.spinner("Working..."):
-        try:
-            t0 = time.time()
-            text, model_used = gemini_generate_text(prompt, timeout_s=35)
-            _ = time.time() - t0
-            st.session_state.result_text = text
+    prompt = build_schema_prompt(
+        brand_name=brand,
+        answers=st.session_state.answers,
+        version_str=version_str,
+        is_refine=st.session_state.refine_mode,
+        refine_focus=refine_focus,
+    )
+
+    stages = ["Analyzing inputs", "Defining positioning", "Writing voice rules", "Setting visual direction", "Assembling PDF"]
+    stage_slot = st.empty()
+
+    try:
+        with st.spinner("Working..."):
+            for s in stages[:2]:
+                stage_slot.write(s)
+                time.sleep(0.15)
+
+            data, model_used, raw = generate_with_retry(prompt, timeout_s=35)
+            st.session_state.last_json = data
             st.session_state.model_used = model_used
-            go("done")
-        except Exception as e:
-            st.session_state.last_error = str(e)
+            st.session_state.debug_last_raw = raw
 
-    st.error(st.session_state.last_error or "Generation failed.")
-    if st.button("Back to inputs"):
-        go("inputs")
+            for s in stages[2:]:
+                stage_slot.write(s)
+                time.sleep(0.10)
+
+            pdf = pdf_render(data)
+            st.session_state.pdf_bytes = pdf
+
+            # Count generation only on success
+            st.session_state.gen_used += 1
+
+            # Exit refine mode after successful refinement
+            st.session_state.refine_mode = False
+            st.session_state.refine_sections = []
+
+            go("done")
+
+    except Exception as e:
+        st.session_state.error = str(e)
+        st.error(f"Generation failed: {st.session_state.error}")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back to confirmation"):
+            go("confirm")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    card_end()
 
 
 def done_view():
-    st.title("Ready")
+    card_start()
+    st.markdown('<div class="eyebrow">Ready</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your brand bible</div>', unsafe_allow_html=True)
 
-    if not st.session_state.result_text:
-        st.error("No output found.")
-        if st.button("Back to inputs"):
-            go("inputs")
+    remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
+    st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
+
+    if not st.session_state.pdf_bytes:
+        st.error("No PDF found yet.")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back"):
+            go("confirm")
+        st.markdown("</div>", unsafe_allow_html=True)
+        card_end()
         return
 
-    with st.expander("Preview", expanded=False):
-        st.markdown(st.session_state.result_text)
-
-    pdf = pdf_bytes(st.session_state.result_text)
-    company = (st.session_state.company or "Brand").strip() or "Brand"
-    filename = f"{company}_Brand_Bible.pdf"
+    brand = (st.session_state.answers.get("brand_name", "") or "").strip() or "Brand"
+    filename = f"{brand}_Brand_Bible_v{st.session_state.gen_used}.pdf"
 
     st.download_button(
         "Download PDF",
-        data=pdf,
+        data=st.session_state.pdf_bytes,
         file_name=filename,
         mime="application/pdf",
         use_container_width=True,
@@ -287,28 +1306,81 @@ def done_view():
     if st.session_state.model_used:
         st.caption(f"Model used: {st.session_state.model_used}")
 
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button("Start over"):
-            reset_app_state(keep_api_key=True)
+    with st.expander("Preview JSON", expanded=False):
+        st.json(st.session_state.last_json or {})
+
+    # Refinement actions
+    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
+    st.subheader("Refine")
+    st.caption("Refinement works best when you focus on one area.")
+
+    focus = st.radio(
+        "What would you like to refine",
+        options=["Positioning", "Messaging", "Voice", "Visual direction", "Everything"],
+        index=0,
+        horizontal=True,
+        key="refine_focus_radio",
+    )
+
+    focus_to_sections = {
+        "Positioning": ["positioning"],
+        "Messaging": ["foundation", "audience", "positioning"],
+        "Voice": ["voice"],
+        "Visual direction": ["visual"],
+        "Everything": ["foundation", "audience", "positioning", "voice", "visual"],
+    }
+
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col1:
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Start new brand"):
+            reset_for_new_brand(keep_api_key=True)
             st.rerun()
-    with c2:
-        if st.button("Change API key"):
-            st.session_state.api_key = ""
-            st.session_state.result_text = ""
-            st.session_state.model_used = ""
-            go("inputs")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        can_refine = remaining > 0
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Refine inputs", disabled=not can_refine):
+            st.session_state.refine_mode = True
+            st.session_state.refine_sections = focus_to_sections.get(focus, ["foundation"])
+            st.session_state.step_index = 0
+            go("wizard")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col3:
+        can_generate = remaining > 0
+        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
+        if st.button("Generate refined version", disabled=not can_generate):
+            # Mark refine mode so prompt is refinement oriented
+            st.session_state.refine_mode = True
+            st.session_state.refine_sections = focus_to_sections.get(focus, ["foundation"])
+            go("generate")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    if remaining <= 0:
+        st.info("No generations remaining. Start a new brand now. Add more generations later.")
+
+    card_end()
 
 
+# =========================
+# Router
+# =========================
 def main():
     ss_init()
     inject_css()
 
     view = st.session_state.view
+
     if view == "landing":
         landing_view()
-    elif view == "inputs":
-        inputs_view()
+    elif view == "commitment":
+        commitment_view()
+    elif view == "wizard":
+        wizard_view()
+    elif view == "confirm":
+        confirm_view()
     elif view == "generate":
         generate_view()
     else:
