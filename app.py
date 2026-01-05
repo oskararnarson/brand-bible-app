@@ -486,7 +486,7 @@ def _safe_pdf_text(s: str) -> str:
     s = s.replace("\u2018", "'").replace("\u2019", "'")
     s = s.replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2026", "...")
-    # Keep it latin-1 safe
+    s = s.replace("\u2022", "-")  # bullet • -> hyphen
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
@@ -577,7 +577,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
             d = _safe_pdf_text((d or "").strip())
             if not d:
                 continue
-            pdf.multi_cell(0, 7, f"• {d}")
+            pdf.multi_cell(0, 7, f"- {d}")
             pdf.ln(2)
 
     def body_text(text: str):
@@ -613,7 +613,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
             it = _safe_pdf_text((it or "").strip())
             if not it:
                 continue
-            pdf.multi_cell(0, 7, f"• {it}")
+            pdf.multi_cell(0, 7, f"- {it}")
             count += 1
         pdf.ln(2)
 
@@ -640,7 +640,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
                 if not it:
                     continue
                 pdf.set_x(x)
-                pdf.multi_cell(col_w, 7, f"• {it}")
+                pdf.multi_cell(col_w, 7, f"- {it}")
                 pdf.ln(1)
             return pdf.get_y()
 
@@ -1019,9 +1019,17 @@ def confirm_view():
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     with st.expander("Review your inputs", expanded=False):
-        brand = (st.session_state.answers.get("brand_name", "") or "").strip()
-        st.write(f"Brand: {brand or 'Not set'}")
-        st.write(f"Answered fields: {len([k for k, v in st.session_state.answers.items() if v])}")
+    for q in QUESTIONS:
+        ans = st.session_state.answers.get(q.answer_key)
+        if ans is None or ans == "" or ans == []:
+            continue
+        st.markdown(f"**{q.title}**")
+        if isinstance(ans, list):
+            st.write(", ".join(ans))
+        else:
+            st.write(ans)
+        st.markdown("")
+
 
     col1, col2 = st.columns([1, 1])
     with col1:
