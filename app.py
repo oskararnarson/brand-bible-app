@@ -268,7 +268,12 @@ QUESTIONS = [
     Question("q17", "positioning", "What category do you actually own", "The simplest category that makes you instantly understood.", "text",
              placeholder="Example: recovery tech", answer_key="right_category"),
     Question("q18", "positioning", "Pick an animal that matches your posture and energy", "Not cute. Useful shorthand.", "cards",
-             options=["Fox", "Hawk", "Panther", "Owl", "Dolphin", "Other"], answer_key="animal"),
+             options=[
+                 "Fox", "Hawk", "Panther", "Owl", "Dolphin",
+                 "Wolf", "Bear", "Raven", "Falcon", "Snake", "Stallion",
+                 "Other"
+             ],
+             answer_key="animal"),
 
     Question("q19", "voice", "Three words you must sound like", "If you choose friendly, you have chosen nothing.", "text",
              placeholder="Example: precise, calm, bold", answer_key="tone_words"),
@@ -422,7 +427,7 @@ def build_schema_prompt(brand_name: str, answers: dict, version_str: str, is_ref
         "INPUT\n"
         f"Brand name: {brand_name}\n"
         f"Requested version: {version_str}\n"
-        f"Generated date (UTC): {utc_date_str()}\n\n"
+        f"Date (UTC): {utc_date_str()}\n\n"
         "Intake answers JSON:\n"
         f"{answers_json}\n\n"
         "Return JSON only.\n"
@@ -486,8 +491,13 @@ def _safe_pdf_text(s: str) -> str:
     s = s.replace("\u2018", "'").replace("\u2019", "'")
     s = s.replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2026", "...")
-    s = s.replace("\u2022", "-")  # bullet • -> hyphen
+    s = s.replace("\u2022", "-")
     return s.encode("latin-1", "replace").decode("latin-1")
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    r, g, b = rgb
+    return f"#{r:02X}{g:02X}{b:02X}"
 
 
 class BrandPDF(FPDF):
@@ -497,7 +507,7 @@ class BrandPDF(FPDF):
     def footer(self):
         self.set_y(-14)
         self.set_font("Helvetica", "", 9)
-        self.set_text_color(120, 120, 120)
+        self.set_text_color(130, 130, 130)
         brand = _safe_pdf_text((self._meta_brand or "").strip())
         if brand:
             self.cell(0, 10, brand, align="L")
@@ -505,80 +515,132 @@ class BrandPDF(FPDF):
         self.cell(20, 10, str(self.page_no()), align="R")
 
 
-def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> bytes:
+def pdf_render(schema: dict, brand_name_fallback: str, answers: dict) -> bytes:
     data = schema or {}
     meta = data.get("meta", {}) or {}
 
     brand = (meta.get("brand_name", "") or "").strip() or brand_name_fallback or "Brand"
-    gen_date = (meta.get("generated_date", "") or "").strip() or utc_date_str()
-    ver = (meta.get("version", "") or "").strip() or version_str
+
+    THEME = {
+        "primary": (18, 22, 30),
+        "accent": (28, 125, 255),
+        "neutral": (245, 246, 248),
+        "muted_text": (85, 85, 85),
+        "soft_line": (220, 220, 220),
+    }
+
+    palette = [
+        ("Primary", THEME["primary"]),
+        ("Accent", THEME["accent"]),
+        ("Neutral", (235, 238, 242)),
+        ("Ink", (35, 35, 35)),
+    ]
+
+    posture = (answers or {}).get("animal", "") or ""
+    if posture == "Other":
+        posture_other = (answers or {}).get("animal_other", "") or ""
+        posture = posture_other.strip() or "Other"
+    posture = posture.strip()
 
     pdf = BrandPDF(format="Letter")
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.set_margins(18, 18, 18)
     pdf._meta_brand = brand
 
+    def divider_page(title: str, one_liner: str):
+        pdf.add_page()
+        pdf.set_text_color(*THEME["primary"])
+        pdf.set_font("Helvetica", "B", 28)
+        pdf.ln(46)
+        pdf.multi_cell(0, 12, _safe_pdf_text(title))
+
+        pdf.ln(6)
+        pdf.set_text_color(*THEME["muted_text"])
+        pdf.set_font("Helvetica", "", 12)
+        pdf.multi_cell(0, 8, _safe_pdf_text(one_liner))
+
+        pdf.ln(14)
+        pdf.set_draw_color(*THEME["accent"])
+        y = pdf.get_y()
+        pdf.set_line_width(1.2)
+        pdf.line(18, y, 198, y)
+
+    def page_heading(title: str):
+        pdf.add_page()
+        pdf.set_text_color(*THEME["primary"])
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.ln(6)
+        pdf.multi_cell(0, 9, _safe_pdf_text(title))
+        pdf.ln(2)
+        pdf.set_draw_color(*THEME["soft_line"])
+        y = pdf.get_y()
+        pdf.set_line_width(0.6)
+        pdf.line(18, y, 198, y)
+        pdf.ln(10)
+
     def cover():
         pdf.add_page()
-        pdf.set_text_color(25, 28, 35)
-        pdf.set_font("Helvetica", "B", 30)
-        pdf.ln(35)
+        pdf.set_text_color(*THEME["primary"])
+        pdf.set_font("Helvetica", "B", 34)
+        pdf.ln(40)
         pdf.multi_cell(0, 12, _safe_pdf_text(brand))
 
         pos = (data.get("positioning", {}) or {}).get("positioning_statement", "") or ""
         pos = _safe_pdf_text(pos.strip())
         if pos:
-            pdf.ln(4)
-            pdf.set_font("Helvetica", "", 12)
-            pdf.set_text_color(60, 60, 60)
-            pdf.multi_cell(0, 7, pos)
+            pdf.ln(6)
+            pdf.set_font("Helvetica", "", 13)
+            pdf.set_text_color(*THEME["muted_text"])
+            pdf.multi_cell(0, 8, pos)
 
-        pdf.ln(8)
-        pdf.set_font("Helvetica", "", 11)
-        pdf.set_text_color(90, 90, 90)
-        pdf.multi_cell(0, 6, "Brand system and decision guide")
+        if posture:
+            pdf.ln(10)
+            pdf.set_text_color(*THEME["primary"])
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 7, "Brand posture", ln=1)
+            pdf.set_text_color(*THEME["muted_text"])
+            pdf.set_font("Helvetica", "", 11)
+            pdf.multi_cell(0, 7, _safe_pdf_text(posture))
 
-        pdf.set_y(-24)
-        pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(120, 120, 120)
-        pdf.cell(0, 10, _safe_pdf_text(f"Version {ver}   Generated {gen_date}"), align="L")
-
-    def section_intro(title: str, one_liner: str):
-        pdf.add_page()
-        pdf.set_text_color(25, 28, 35)
-        pdf.set_font("Helvetica", "B", 20)
-        pdf.ln(6)
-        pdf.multi_cell(0, 10, _safe_pdf_text(title))
-
-        pdf.set_text_color(70, 70, 70)
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 7, _safe_pdf_text(one_liner))
-
-        pdf.ln(4)
-        x = pdf.get_x()
+        pdf.ln(16)
+        pdf.set_draw_color(*THEME["accent"])
         y = pdf.get_y()
-        pdf.set_draw_color(220, 220, 220)
+        pdf.set_line_width(1.2)
         pdf.line(18, y, 198, y)
+
         pdf.ln(10)
-
-    def decision_list(decisions: list[str]):
-        pdf.set_text_color(25, 28, 35)
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 6, "Decisions", ln=1)
-
-        pdf.set_draw_color(220, 220, 220)
-        y = pdf.get_y()
-        pdf.line(18, y, 198, y)
-        pdf.ln(8)
-
+        pdf.set_text_color(*THEME["muted_text"])
         pdf.set_font("Helvetica", "", 11)
-        pdf.set_text_color(45, 45, 45)
-        for d in (decisions or [])[:5]:
-            d = _safe_pdf_text((d or "").strip())
-            if not d:
-                continue
-            pdf.multi_cell(0, 7, f"- {d}")
-            pdf.ln(2)
+        pdf.multi_cell(0, 7, "Brand system and decision guide")
+
+    def palette_page():
+        pdf.add_page()
+        pdf.set_text_color(*THEME["primary"])
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.ln(6)
+        pdf.cell(0, 10, "Color palette", ln=1)
+        pdf.set_draw_color(*THEME["soft_line"])
+        y = pdf.get_y()
+        pdf.set_line_width(0.6)
+        pdf.line(18, y, 198, y)
+        pdf.ln(12)
+
+        box_h = 26
+        for name, rgb in palette:
+            r, g, b = rgb
+            hexv = _rgb_to_hex(rgb)
+            pdf.set_fill_color(r, g, b)
+            pdf.set_draw_color(230, 230, 230)
+            pdf.rect(18, pdf.get_y(), 50, box_h, style="FD")
+            pdf.set_xy(74, pdf.get_y() + 2)
+            pdf.set_text_color(*THEME["primary"])
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.cell(0, 7, _safe_pdf_text(name), ln=1)
+            pdf.set_x(74)
+            pdf.set_text_color(*THEME["muted_text"])
+            pdf.set_font("Helvetica", "", 10)
+            pdf.cell(0, 6, _safe_pdf_text(f"{hexv}   RGB {r}, {g}, {b}"), ln=1)
+            pdf.ln(8)
 
     def body_text(text: str):
         t = _safe_pdf_text((text or "").strip())
@@ -594,12 +656,12 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
             pdf.multi_cell(0, 7, para)
             pdf.ln(2)
 
-    def simple_list(title: str, items: list[str], limit: int = 8):
+    def list_block(title: str, items: list[str], limit: int = 8):
         if title:
-            pdf.set_text_color(25, 28, 35)
+            pdf.set_text_color(*THEME["primary"])
             pdf.set_font("Helvetica", "B", 11)
             pdf.cell(0, 6, _safe_pdf_text(title), ln=1)
-            pdf.set_draw_color(220, 220, 220)
+            pdf.set_draw_color(*THEME["soft_line"])
             y = pdf.get_y()
             pdf.line(18, y, 198, y)
             pdf.ln(8)
@@ -617,7 +679,7 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
             count += 1
         pdf.ln(2)
 
-    def do_dont(left_title: str, left_items: list[str], right_title: str, right_items: list[str]):
+    def two_col(left_title: str, left_items: list[str], right_title: str, right_items: list[str]):
         left_items = [x for x in (left_items or []) if (x or "").strip()][:7]
         right_items = [x for x in (right_items or []) if (x or "").strip()][:7]
 
@@ -626,13 +688,18 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
         col_gap = 10
         col_w = (198 - 18 - col_gap) / 2
 
+        pdf.set_draw_color(*THEME["soft_line"])
+        pdf.line(18, y0, 198, y0)
+        pdf.ln(6)
+
+        y_start = pdf.get_y()
+
         def col(x: float, y: float, title: str, items: list[str]) -> float:
             pdf.set_xy(x, y)
-            pdf.set_text_color(25, 28, 35)
+            pdf.set_text_color(*THEME["primary"])
             pdf.set_font("Helvetica", "B", 11)
             pdf.cell(col_w, 6, _safe_pdf_text(title), ln=1)
-
-            pdf.set_xy(x, pdf.get_y() + 2)
+            pdf.ln(2)
             pdf.set_text_color(45, 45, 45)
             pdf.set_font("Helvetica", "", 11)
             for it in items:
@@ -644,22 +711,15 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
                 pdf.ln(1)
             return pdf.get_y()
 
-        # Divider line across both columns
-        pdf.set_draw_color(220, 220, 220)
-        pdf.line(18, y0, 198, y0)
-        pdf.ln(6)
-
-        y_start = pdf.get_y()
         ly = col(x0, y_start, left_title, left_items)
         ry = col(x0 + col_w + col_gap, y_start, right_title, right_items)
-
         pdf.set_y(max(ly, ry) + 4)
 
     def key_messages(items: list[dict]):
-        pdf.set_text_color(25, 28, 35)
+        pdf.set_text_color(*THEME["primary"])
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(0, 6, "Key messages", ln=1)
-        pdf.set_draw_color(220, 220, 220)
+        pdf.set_draw_color(*THEME["soft_line"])
         y = pdf.get_y()
         pdf.line(18, y, 198, y)
         pdf.ln(8)
@@ -669,36 +729,45 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
             proof = _safe_pdf_text((km.get("proof", "") or "").strip())
             if not msg:
                 continue
-            pdf.set_text_color(25, 28, 35)
+            pdf.set_text_color(*THEME["primary"])
             pdf.set_font("Helvetica", "B", 11)
             pdf.multi_cell(0, 7, msg)
             if proof:
-                pdf.set_text_color(60, 60, 60)
+                pdf.set_text_color(*THEME["muted_text"])
                 pdf.set_font("Helvetica", "", 10)
                 pdf.multi_cell(0, 6, proof)
             pdf.ln(4)
 
     cover()
+    palette_page()
 
-    section_intro("Executive summary", "The decisions that keep this brand consistent.")
+    divider_page("Executive summary", "The decisions that keep this brand consistent.")
+    page_heading("Executive summary")
     decisions = (data.get("executive_summary", {}) or {}).get("decisions", []) or []
-    decision_list(decisions)
+    list_block("Decisions", [d for d in decisions if (d or "").strip()], limit=6)
 
-    section_intro("Positioning", "Where this brand stands, and what it refuses to be.")
+    divider_page("Positioning", "Where this brand stands, and what it refuses to be.")
+    page_heading("Positioning")
     pos = data.get("positioning", {}) or {}
     body_text((pos.get("positioning_statement", "") or "").strip())
 
-    left = []
+    posture_line = ""
+    if posture:
+        posture_line = f"Posture: {posture}"
     cat = (pos.get("category", "") or "").strip()
+    anti = (pos.get("anti_position", "") or "").strip()
+
+    left = []
     if cat:
         left.append(f"Category: {cat}")
-    right = []
-    anti = (pos.get("anti_position", "") or "").strip()
-    if anti:
-        right.append(anti)
-    do_dont("What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, or generic."])
+    if posture_line:
+        left.append(posture_line)
 
-    section_intro("Audience and insight", "One real customer, and what actually moves them.")
+    right = [anti] if anti else []
+    two_col("What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, or generic."])
+
+    divider_page("Audience and insight", "One real customer, and what actually moves them.")
+    page_heading("Audience and insight")
     aud = data.get("audience", {}) or {}
     aud_items = [
         (aud.get("core_customer", "") or "").strip(),
@@ -706,17 +775,19 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
         (aud.get("primary_objection", "") or "").strip(),
         (aud.get("trust_trigger", "") or "").strip(),
     ]
-    simple_list("What to know", [x for x in aud_items if x], limit=8)
+    list_block("What to know", [x for x in aud_items if x], limit=10)
 
-    section_intro("Messaging system", "Repeatable messages, backed by credible proof.")
+    divider_page("Messaging system", "Repeatable messages, backed by credible proof.")
+    page_heading("Messaging system")
     msg = data.get("messaging", {}) or {}
     body_text((msg.get("core_message", "") or "").strip())
     key_messages(msg.get("key_messages", []) or [])
 
-    section_intro("Voice", "Rules that stop the wrong words before they are written.")
+    divider_page("Voice", "Rules that stop the wrong words before they are written.")
+    page_heading("Voice")
     voice = data.get("voice", {}) or {}
-    simple_list("Principles", [x for x in (voice.get("principles", []) or []) if (x or "").strip()], limit=6)
-    do_dont(
+    list_block("Principles", [x for x in (voice.get("principles", []) or []) if (x or "").strip()], limit=8)
+    two_col(
         "Do say",
         [x for x in (voice.get("do_say", []) or []) if (x or "").strip()],
         "Do not say",
@@ -726,32 +797,35 @@ def pdf_render(schema: dict, brand_name_fallback: str, version_str: str) -> byte
     before = (ex.get("before", "") or "").strip()
     after = (ex.get("after", "") or "").strip()
     if before or after:
-        section_intro("Voice examples", "Before and after. Clear contrast.")
+        divider_page("Voice examples", "Before and after. Clear contrast.")
+        page_heading("Voice examples")
         if before:
-            simple_list("Before", [before], limit=1)
+            list_block("Before", [before], limit=1)
         if after:
-            simple_list("After", [after], limit=1)
+            list_block("After", [after], limit=1)
 
-    section_intro("Visual direction", "Taste and constraints, not design specs.")
+    divider_page("Visual direction", "Taste and constraints, not design specs.")
+    page_heading("Visual direction")
     vis = data.get("visual_direction", {}) or {}
     body_text((vis.get("intent", "") or "").strip())
-    do_dont(
+    two_col(
         "Feels like",
         [x for x in (vis.get("feels_like", []) or []) if (x or "").strip()],
         "Never feels like",
         [x for x in (vis.get("never_feels_like", []) or []) if (x or "").strip()],
     )
 
-    section_intro("Guardrails", "How this brand gets ruined. Avoid these.")
+    divider_page("Guardrails", "How this brand gets ruined. Avoid these.")
+    page_heading("Guardrails")
     guard = data.get("guardrails", {}) or {}
-    simple_list("Failure modes", [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], limit=9)
+    list_block("Failure modes", [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], limit=12)
 
-    section_intro("How to use this", "When to open this document, and what not to debate.")
+    divider_page("How to use this", "Open this when the team starts to drift.")
+    page_heading("How to use this")
     usage = data.get("usage", {}) or {}
-    simple_list("Use it like this", [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], limit=9)
+    list_block("Use it like this", [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], limit=12)
 
-    out = pdf.output(dest="S").encode("latin-1", "replace")
-    return out
+    return pdf.output(dest="S").encode("latin-1", "replace")
 
 
 # =========================
@@ -1012,7 +1086,6 @@ def confirm_view():
     st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle" style="font-size:34px;">This is enough to build a real brand system</div>', unsafe_allow_html=True)
     st.write("You will get positioning, messaging, voice rules, visual direction, and guardrails.")
-    st.caption("Agencies typically charge thousands for this step.")
     st.write("")
     st.write(f"Generations remaining: {max(st.session_state.gen_max - st.session_state.gen_used, 0)} of {st.session_state.gen_max}")
 
@@ -1029,7 +1102,6 @@ def confirm_view():
             else:
                 st.write(ans)
             st.markdown("")
-
 
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -1056,7 +1128,7 @@ def generate_view():
     card_start()
     st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle" style="font-size:34px;">Building your brand bible</div>', unsafe_allow_html=True)
-    st.write("This usually takes under a minute.")
+    st.write("")
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     api_key = (st.session_state.api_key or "").strip()
@@ -1107,7 +1179,7 @@ def generate_view():
         with st.spinner("Working..."):
             for s in stages[:2]:
                 stage_slot.write(s)
-                time.sleep(0.12)
+                time.sleep(0.10)
 
             data, model_used, raw = generate_with_retry(prompt, timeout_s=35)
             st.session_state.last_json = data
@@ -1116,9 +1188,9 @@ def generate_view():
 
             for s in stages[2:]:
                 stage_slot.write(s)
-                time.sleep(0.10)
+                time.sleep(0.08)
 
-            pdf = pdf_render(data, brand_name_fallback=brand, version_str=version_str)
+            pdf = pdf_render(data, brand_name_fallback=brand, answers=st.session_state.answers)
             st.session_state.pdf_bytes = pdf
 
             st.session_state.gen_used += 1
