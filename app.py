@@ -77,7 +77,7 @@ def inject_css():
 footer { visibility: hidden; }
 header { visibility: hidden; }
 
-.block-container { max-width: 1180px; padding-top: 2.4rem; padding-bottom: 3.2rem; }
+.block-container { max-width: 1180px; padding-top: 7rem !important; padding-bottom: 3.2rem; }
 
 :root{
   --bg:#0b0d11;
