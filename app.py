@@ -460,11 +460,48 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
 # Assets: curated photos (download once, cached)
 # =========================
 PHOTO_QUERIES = {
-    "calm": ["minimal interior", "soft light", "architecture detail", "stone texture", "calm workspace", "museum interior"],
-    "bold": ["high contrast portrait", "modern architecture", "dramatic shadow", "neon city", "steel texture", "night street"],
-    "precision": ["grid pattern", "lab aesthetic", "clean typography", "product closeup", "industrial detail", "white studio"],
-    "warm": ["warm portrait", "sunlight texture", "material detail", "cozy interior", "hands craft", "golden hour"],
+    "calm": [
+        "minimal workspace natural light",
+        "museum interior minimal",
+        "concrete architecture detail",
+        "stone texture close up",
+        "quiet library interior",
+        "soft shadow wall texture",
+        "minimal desk editorial",
+        "architectural corridor",
+    ],
+    "bold": [
+        "brutalist architecture dramatic light",
+        "high contrast portrait low key",
+        "night city street neon reflection",
+        "steel structure detail",
+        "stark shadow silhouette",
+        "modern architecture night",
+        "dramatic chiaroscuro portrait",
+        "industrial corridor moody",
+    ],
+    "precision": [
+        "grid pattern macro",
+        "lab interior clean",
+        "white studio product close up",
+        "industrial detail minimal",
+        "typography poster close up",
+        "architectural lines symmetry",
+        "blueprint technical drawing",
+        "precision instrument close up",
+    ],
+    "warm": [
+        "warm sunlight texture",
+        "hands craft detail",
+        "cozy modern interior minimal",
+        "golden hour portrait",
+        "wood texture close up",
+        "warm shadow wall",
+        "ceramic material detail",
+        "soft warm editorial",
+    ],
 }
+
 
 
 def pick_photo_theme(answers: dict, schema: dict) -> str:
@@ -490,8 +527,9 @@ def _download_to_temp(url: str, key: str) -> str | None:
         return None
 
     try:
-        r = requests.get(url, timeout=12)
-        if r.status_code != 200:
+        headers = {"User-Agent": "BrandBibleGenerator/1.0"}
+        r = requests.get(url, timeout=18, headers=headers, allow_redirects=True)
+        if r.status_code != 200 or not r.content:
             return None
         f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
         f.write(r.content)
@@ -503,16 +541,29 @@ def _download_to_temp(url: str, key: str) -> str | None:
         return None
 
 
-def get_curated_images(theme: str, count: int = 6) -> list[str]:
+
+def get_curated_images(theme: str, count: int = 8) -> list[str]:
     queries = PHOTO_QUERIES.get(theme, PHOTO_QUERIES["calm"])
+
+    # Taka fleiri queries en count, svo við getum sleppt dud myndum án þess að enda tómir
+    want = max(count, 8)
     paths: list[str] = []
-    for i in range(min(count, len(queries))):
-        q = queries[i].replace(" ", ",")
-        url = f"https://source.unsplash.com/2400x1600/?{q}"
-        p = _download_to_temp(url, key=f"unsplash_{theme}_{i}_{int(time.time())}")
+
+    for i, qraw in enumerate(queries[:want]):
+        q = qraw.replace(" ", ",")
+        # sig brýtur cache hjá source.unsplash svo þú fáir ekki sama aftur og aftur
+        url = f"https://source.unsplash.com/2400x1600/?{q}&sig={i+1}"
+
+        # cache key byggt á theme + query + sig (ekki time.time)
+        key = f"unsplash_{theme}_{i}_{abs(hash(url))}"
+        p = _download_to_temp(url, key=key)
         if p:
             paths.append(p)
+        if len(paths) >= count:
+            break
+
     return paths
+
 
 
 
