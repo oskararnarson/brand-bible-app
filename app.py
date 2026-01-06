@@ -19,7 +19,9 @@ try:
 except Exception:
     requests = None
 
+
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
+
 
 # =========================
 # Session state
@@ -506,8 +508,7 @@ def get_curated_images(theme: str, count: int = 6) -> list[str]:
     paths: list[str] = []
     for i in range(min(count, len(queries))):
         q = queries[i].replace(" ", ",")
-        # Updated Unsplash URL to a more reliable placeholder if needed
-        url = f"https://source.unsplash.com/featured/2400x1600?{q}"
+        url = f"https://source.unsplash.com/2400x1600/?{q}"
         p = _download_to_temp(url, key=f"unsplash_{theme}_{i}_{int(time.time())}")
         if p:
             paths.append(p)
@@ -626,7 +627,7 @@ class BrandPDF(FPDF):
         self.set_y(-12)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(140, 140, 140)
-        self.cell(0, 10, safe_text(getattr(self, '_brand_name', "") or ""), align="L")
+        self.cell(0, 10, safe_text(self._brand_name or ""), align="L")
         self.set_x(-22)
         self.cell(12, 10, str(self.page_no()), align="R")
 
@@ -642,7 +643,7 @@ def full_bleed_image(pdf: BrandPDF, img_path: str):
     pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h)
 
 
-def hero_slide(pdf: BrandPDF, brand: str, headline: str, subhead: str, bg_rgb: tuple[int, int, int], plate_path: str | None = None, accent_rgb: tuple[int, int, int] = (255, 0, 0)):
+def hero_slide(pdf: BrandPDF, brand: str, headline: str, subhead: str, bg_rgb: tuple[int, int, int], plate_path: str | None = None):
     if plate_path:
         full_bleed_image(pdf, plate_path)
     else:
@@ -664,14 +665,9 @@ def hero_slide(pdf: BrandPDF, brand: str, headline: str, subhead: str, bg_rgb: t
         pdf.set_font("Helvetica", "", 14)
         pdf.set_xy(20, 132)
         pdf.multi_cell(160, 8, safe_text(subhead))
-        
-    # FIX: Fixed width line that doesn't touch the edge
-    pdf.set_draw_color(*accent_rgb)
-    pdf.set_line_width(1.4)
-    pdf.line(20, pdf.h - 28, 90, pdf.h - 28)
 
 
-def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, int, int], accent_rgb: tuple[int, int, int] = (255, 0, 0)):
+def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, int, int]):
     full_bleed_color(pdf, bg_rgb)
     tc = text_color_for_bg(bg_rgb)
     pdf.set_text_color(*tc)
@@ -683,11 +679,6 @@ def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, 
     pdf.set_font("Helvetica", "", 16)
     pdf.set_xy(20, 102)
     pdf.multi_cell(190, 9, safe_text(subtitle))
-    
-    # FIX: Fixed line
-    pdf.set_draw_color(*accent_rgb)
-    pdf.set_line_width(1.4)
-    pdf.line(20, 125, 90, 125)
 
 
 def power_slide(pdf: BrandPDF, words: list[str], bg_rgb: tuple[int, int, int]):
@@ -712,7 +703,6 @@ def content_page_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]
 
     pdf.set_draw_color(*accent)
     pdf.set_line_width(1.2)
-    # FIX: Intentionally fixed width line
     pdf.line(20, 32, 90, 32)
 
     pdf.set_xy(20, 40)
@@ -872,7 +862,7 @@ def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int
     # 6 images grid: 3 columns, 2 rows
     x0 = 20
     y0 = 44
-    gap = 6 # GUTTER
+    gap = 6
     cols = 3
     rows = 2
     cell_w = (pdf.w - 40 - gap * (cols - 1)) / cols
@@ -956,6 +946,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         full_bleed_image(pdf, cover_plate_path)
 
     # Overlay cover text
+    bg_for_text = primary if hero_photo else background
     tc = (255, 255, 255)
     pdf.set_text_color(*tc)
     pdf.set_font("Helvetica", "B", 46)
@@ -972,25 +963,20 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         pdf.set_font("Helvetica", "", 14)
         pdf.set_xy(20, 132)
         pdf.multi_cell(165, 8, subhead)
-        
-    # FIX: Cover Line
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.4)
-    pdf.line(20, pdf.h - 28, 90, pdf.h - 28)
 
     # Posters
     palette_poster(pdf, colors, accent)
     typography_poster(pdf, typo, accent)
 
     # Executive summary
-    section_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", primary, accent_rgb=accent)
+    section_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", primary)
     content_page_heading(pdf, "Executive summary", accent)
     decisions = ((schema.get("executive_summary", {}) or {}).get("decisions", []) or [])
     bullet_list(pdf, [d for d in decisions if (d or "").strip()], max_items=7)
 
     # Positioning
     power_slide(pdf, ["CLARITY", "OVER", "COMFORT"], background)
-    section_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", background, accent_rgb=accent)
+    section_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", background)
     content_page_heading(pdf, "Positioning", accent)
     pos = schema.get("positioning", {}) or {}
     body_paras(pdf, (pos.get("positioning_statement", "") or "").strip())
@@ -1004,7 +990,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     two_col_lists(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, generic."], accent)
 
     # Audience
-    section_opener(pdf, "Audience", "One real person. One real tension.", background, accent_rgb=accent)
+    section_opener(pdf, "Audience", "One real person. One real tension.", background)
     content_page_heading(pdf, "Audience and insight", accent)
     aud = schema.get("audience", {}) or {}
     bullet_list(pdf, [
@@ -1015,27 +1001,13 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     ], max_items=8)
 
     # Messaging
-    section_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", background, accent_rgb=accent)
+    section_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", background)
     content_page_heading(pdf, "Messaging system", accent)
     msg = schema.get("messaging", {}) or {}
-    
-    # REDESIGN: Messaging Page Layout
-    pdf.set_fill_color(248, 248, 248)
-    pdf.rect(20, pdf.get_y(), 190, 35, 'F')
-    pdf.set_y(pdf.get_y() + 5)
-    pdf.set_x(25)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(*accent)
-    pdf.cell(0, 5, "CORE BRAND MESSAGE", ln=1)
-    pdf.set_x(25)
-    pdf.set_font("Helvetica", "", 13)
-    pdf.set_text_color(18, 22, 30)
-    pdf.multi_cell(180, 7, safe_text((msg.get("core_message", "") or "").strip()))
-    pdf.set_y(pdf.get_y() + 10)
+    body_paras(pdf, (msg.get("core_message", "") or "").strip())
 
     kms = (msg.get("key_messages", []) or [])[:3]
     if kms:
-        pdf.set_x(20)
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(18, 22, 30)
         pdf.cell(0, 7, "Key messages", ln=1)
@@ -1044,48 +1016,28 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
             m = safe_text((km.get("message", "") or "").strip())
             p = safe_text((km.get("proof", "") or "").strip())
             if m:
-                pdf.set_x(20)
                 pdf.set_font("Helvetica", "B", 11)
                 pdf.set_text_color(18, 22, 30)
-                pdf.multi_cell(0, 6.8, f"-> {m}")
+                pdf.multi_cell(0, 6.8, m)
             if p:
-                pdf.set_x(26)
                 pdf.set_font("Helvetica", "", 10)
                 pdf.set_text_color(70, 70, 70)
-                pdf.multi_cell(180, 6.2, p)
-            pdf.ln(4)
+                pdf.multi_cell(0, 6.2, p)
+            pdf.ln(2)
 
     # Voice
-    section_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", primary, accent_rgb=accent)
+    section_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", primary)
     content_page_heading(pdf, "Voice rules", accent)
     voice = schema.get("voice", {}) or {}
-    
-    # REDESIGN: Voice Table Layout
-    y_start = pdf.get_y()
-    col_w = (pdf.w - 50) / 2
-    
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.set_text_color(46, 125, 50) # Strategic Green for Do
-    pdf.cell(col_w, 10, "USE THESE WORDS", border='B')
-    pdf.set_x(pdf.get_x() + 10)
-    pdf.set_text_color(198, 40, 40) # Aggressive Red for Don't
-    pdf.cell(col_w, 10, "BANNED VOCABULARY", border='B', ln=1)
-    pdf.ln(5)
-    
-    dos = [x for x in (voice.get("do_say", []) or []) if (x or "").strip()]
-    donts = [x for x in (voice.get("do_not_say", []) or []) if (x or "").strip()]
-    
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(35, 35, 35)
-    for i in range(max(len(dos), len(donts))):
-        d_val = dos[i] if i < len(dos) else ""
-        dn_val = donts[i] if i < len(donts) else ""
-        pdf.set_x(20)
-        pdf.cell(col_w, 8, f"+ {safe_text(d_val)}")
-        pdf.set_x(pdf.get_x() + 10)
-        pdf.cell(col_w, 8, f"x {safe_text(dn_val)}")
-        pdf.ln(8)
-
+    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], max_items=7)
+    two_col_lists(
+        pdf,
+        "Do say",
+        [x for x in (voice.get("do_say", []) or []) if (x or "").strip()],
+        "Do not say",
+        [x for x in (voice.get("do_not_say", []) or []) if (x or "").strip()],
+        accent
+    )
     ex = voice.get("examples", {}) or {}
     before = (ex.get("before", "") or "").strip()
     after = (ex.get("after", "") or "").strip()
@@ -1094,7 +1046,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         two_col_lists(pdf, "Before", [before], "After", [after], accent)
 
     # Visual direction: photo spread + moodboard + rules
-    section_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", background, accent_rgb=accent)
+    section_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", background)
     vis = schema.get("visual_direction", {}) or {}
     if spread_photo:
         visual_spread(pdf, spread_photo, "Mood reference", accent)
@@ -1112,13 +1064,13 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     )
 
     # Guardrails
-    section_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", primary, accent_rgb=accent)
+    section_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", primary)
     content_page_heading(pdf, "Guardrails", accent)
     guard = schema.get("guardrails", {}) or {}
     bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], max_items=10)
 
     # Usage
-    section_opener(pdf, "How to use this", "Open this when the team starts to drift.", background, accent_rgb=accent)
+    section_opener(pdf, "How to use this", "Open this when the team starts to drift.", background)
     content_page_heading(pdf, "How to use this", accent)
     usage = schema.get("usage", {}) or {}
     bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], max_items=10)
@@ -1130,8 +1082,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         headline=headline or "A brand system you can actually follow",
         subhead=subhead or "Consistency is not a feeling. It is a set of rules.",
         bg_rgb=background,
-        plate_path=cover_plate_path,
-        accent_rgb=accent
+        plate_path=cover_plate_path
     )
 
     return pdf.output(dest="S").encode("latin-1", "replace")
