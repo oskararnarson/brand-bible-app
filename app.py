@@ -1147,13 +1147,6 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
 # =========================
 # UI helpers
 # =========================
-def card_start():
-    st.markdown('<div class="card fadeIn">', unsafe_allow_html=True)
-
-
-def card_end():
-    st.markdown("</div>", unsafe_allow_html=True)
-
 
 def render_progress(step_index: int, steps: list[dict]):
     total = len([s for s in steps if s["type"] == "question"])
@@ -1231,7 +1224,6 @@ def validate_step(step: dict) -> tuple[bool, str]:
 # Views
 # =========================
 def landing_view():
-    card_start()
     st.markdown('<div class="eyebrow">Brand system generator</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle">Build a brand that stays consistent when you are not in the room</div>', unsafe_allow_html=True)
     st.markdown(
@@ -1278,7 +1270,7 @@ def landing_view():
         with st.expander("Developer settings"):
             st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
 
-    card_end()
+    
 
 
 def wizard_view():
@@ -1286,7 +1278,6 @@ def wizard_view():
     st.session_state.step_index = max(0, min(st.session_state.step_index, len(steps) - 1))
     step = steps[st.session_state.step_index]
 
-    card_start()
     render_progress(st.session_state.step_index, steps)
     st.write("")
 
@@ -1327,11 +1318,10 @@ def wizard_view():
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    card_end()
+    
 
 
 def confirm_view():
-    card_start()
     st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle" style="font-size:34px;">Ready to generate the deck</div>', unsafe_allow_html=True)
 
@@ -1363,11 +1353,10 @@ def confirm_view():
             go("generate")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    card_end()
+    
 
 
 def generate_view():
-    card_start()
     st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle" style="font-size:34px;">Building your brand deck</div>', unsafe_allow_html=True)
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
@@ -1379,7 +1368,7 @@ def generate_view():
         if st.button("Back"):
             go("landing")
         st.markdown("</div>", unsafe_allow_html=True)
-        card_end()
+        
         return
 
     remaining = st.session_state.gen_max - st.session_state.gen_used
@@ -1389,7 +1378,7 @@ def generate_view():
         if st.button("Back"):
             go("done" if st.session_state.pdf_bytes else "confirm")
         st.markdown("</div>", unsafe_allow_html=True)
-        card_end()
+        
         return
 
     genai.configure(api_key=api_key)
@@ -1401,7 +1390,7 @@ def generate_view():
         if st.button("Back"):
             go("wizard")
         st.markdown("</div>", unsafe_allow_html=True)
-        card_end()
+        
         return
 
     prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
@@ -1431,11 +1420,9 @@ def generate_view():
             go("confirm")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    card_end()
 
 
 def done_view():
-    card_start()
     st.markdown('<div class="eyebrow">Ready</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle" style="font-size:34px;">Download your brand deck</div>', unsafe_allow_html=True)
 
@@ -1448,7 +1435,6 @@ def done_view():
         if st.button("Back"):
             go("confirm")
         st.markdown("</div>", unsafe_allow_html=True)
-        card_end()
         return
 
     brand = (st.session_state.answers.get("brand_name", "") or "").strip() or "Brand"
@@ -1482,7 +1468,7 @@ def done_view():
     if st.session_state.model_used:
         st.caption(f"Model used: {st.session_state.model_used}")
 
-    card_end()
+    
 
 
 # =========================
