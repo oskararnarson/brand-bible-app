@@ -459,37 +459,11 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
 # =========================
 # Assets: curated photos (download once, cached)
 # =========================
-CURATED_UNSPLASH = {
-    # abstract, architecture, texture, editorial
-    "calm": [
-        "https://images.unsplash.com/photo-1526481280695-3c687fd643ed?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1496307653780-42ee777d4833?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1526481280695-3c687fd643ed?auto=format&fit=crop&w=2000&q=80",
-    ],
-    "bold": [
-        "https://images.unsplash.com/photo-1520975661595-6453be3f7070?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1451187863213-d1bcbaae3fa3?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1520975867597-0c7b8f69f1f1?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1520975661595-6453be3f7070?auto=format&fit=crop&w=2000&q=80",
-    ],
-    "precision": [
-        "https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1526401485004-2aa6b8d31f8f?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1482192596544-9eb780fc7f66?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1526401485004-2aa6b8d31f8f?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1503387762-592deb58ef4e?auto=format&fit=crop&w=2000&q=80",
-    ],
-    "warm": [
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2000&q=80",
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=2000&q=80",
-    ],
+PHOTO_QUERIES = {
+    "calm": ["minimal interior", "soft light", "architecture detail", "stone texture", "calm workspace", "museum interior"],
+    "bold": ["high contrast portrait", "modern architecture", "dramatic shadow", "neon city", "steel texture", "night street"],
+    "precision": ["grid pattern", "lab aesthetic", "clean typography", "product closeup", "industrial detail", "white studio"],
+    "warm": ["warm portrait", "sunlight texture", "material detail", "cozy interior", "hands craft", "golden hour"],
 }
 
 
@@ -508,31 +482,38 @@ def pick_photo_theme(answers: dict, schema: dict) -> str:
     return "calm"
 
 
-def _download_to_temp(url: str, key: str) -> str:
+def _download_to_temp(url: str, key: str) -> str | None:
     if key in st.session_state.asset_paths and os.path.exists(st.session_state.asset_paths[key]):
         return st.session_state.asset_paths[key]
 
     if requests is None:
-        raise RuntimeError("requests is not installed. Add requests to requirements.txt.")
+        return None
 
-    r = requests.get(url, timeout=12)
-    r.raise_for_status()
-    f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-    f.write(r.content)
-    f.flush()
-    f.close()
-    st.session_state.asset_paths[key] = f.name
-    return f.name
+    try:
+        r = requests.get(url, timeout=12)
+        if r.status_code != 200:
+            return None
+        f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        f.write(r.content)
+        f.flush()
+        f.close()
+        st.session_state.asset_paths[key] = f.name
+        return f.name
+    except Exception:
+        return None
 
 
 def get_curated_images(theme: str, count: int = 6) -> list[str]:
-    urls = CURATED_UNSPLASH.get(theme, CURATED_UNSPLASH["calm"])
-    picked = urls[:count]
-    paths = []
-    for i, u in enumerate(picked):
-        k = f"photo_{theme}_{i}_{abs(hash(u))}"
-        paths.append(_download_to_temp(u, k))
+    queries = PHOTO_QUERIES.get(theme, PHOTO_QUERIES["calm"])
+    paths: list[str] = []
+    for i in range(min(count, len(queries))):
+        q = queries[i].replace(" ", ",")
+        url = f"https://source.unsplash.com/2400x1600/?{q}"
+        p = _download_to_temp(url, key=f"unsplash_{theme}_{i}_{int(time.time())}")
+        if p:
+            paths.append(p)
     return paths
+
 
 
 # =========================
@@ -913,6 +894,23 @@ def visual_spread(pdf: BrandPDF, image_path: str, caption: str, accent: tuple[in
     pdf.line(20, pdf.h - 28, 88, pdf.h - 28)
 
 
+def make_brand_plates(primary, accent, background, count=6) -> list[str]:
+    out = []
+    combos = [
+        (primary, accent, background),
+        (accent, primary, background),
+        (primary, background, accent),
+        (background, primary, accent),
+        (accent, background, primary),
+        (background, accent, primary),
+    ]
+    for i in range(count):
+        c1, c2, bg = combos[i % len(combos)]
+        png = _make_plate_png_bytes(1900, 1100, c1, c2, bg)
+        out.append(_write_temp_png(png, key=f"plate_{i}_{_rgb_to_hex(c1)}_{_rgb_to_hex(c2)}"))
+    return out
+
+
 def render_pdf(schema: dict, answers: dict) -> bytes:
     meta = schema.get("meta", {}) or {}
     colors = schema.get("colors", {}) or {}
@@ -936,6 +934,8 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     # Curated photos
     theme = pick_photo_theme(answers, schema)
     photos = get_curated_images(theme, count=6)
+    if not photos:
+        photos = make_brand_plates(primary, accent, background, count=6)
     hero_photo = photos[0] if photos else None
     spread_photo = photos[1] if len(photos) > 1 else None
 
