@@ -1460,10 +1460,6 @@ def done_view():
 
     with st.expander("Preview JSON", expanded=False):
         st.json(st.session_state.last_json or {})
-
-    if st.session_state.model_used:
-        st.caption(f"Model used: {st.session_state.model_used}")
-
     
 
 
