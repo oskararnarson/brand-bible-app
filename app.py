@@ -194,6 +194,11 @@ label{
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .fadeIn { animation: fadeIn 220ms ease-out; }
+
+header { display: none !important; }
+  [data-testid="stHeader"] { display: none !important; height: 0 !important; }
+  [data-testid="stToolbar"] { display: none !important; height: 0 !important; }
+  .block-container { padding-top: 1.2rem !important; }
 </style>
 """,
         unsafe_allow_html=True,
