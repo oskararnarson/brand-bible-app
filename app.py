@@ -103,7 +103,7 @@ html, body { background: var(--bg); color: var(--fg); }
   background: linear-gradient(180deg, var(--card), var(--card2));
   border: 1px solid var(--stroke);
   border-radius: 22px;
-  padding: 28px;
+  padding: 108px;
   box-shadow: 0 30px 120px rgba(0,0,0,0.55);
   backdrop-filter: blur(14px);
 }
