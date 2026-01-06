@@ -103,7 +103,7 @@ html, body { background: var(--bg); color: var(--fg); }
   background: linear-gradient(180deg, var(--card), var(--card2));
   border: 1px solid var(--stroke);
   border-radius: 22px;
-  padding: 108px;
+  padding: 28px;
   box-shadow: 0 30px 120px rgba(0,0,0,0.55);
   backdrop-filter: blur(14px);
 }
@@ -199,6 +199,13 @@ header { display: none !important; }
   [data-testid="stHeader"] { display: none !important; height: 0 !important; }
   [data-testid="stToolbar"] { display: none !important; height: 0 !important; }
   .block-container { padding-top: 1.2rem !important; }
+
+  /* Force top spacing for the main content */
+div[data-testid="stAppViewContainer"] > section.main > div.block-container{
+  padding-top: 7rem !important;
+  padding-bottom: 3.2rem !important;
+}
+
 </style>
 """,
         unsafe_allow_html=True,
