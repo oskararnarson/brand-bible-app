@@ -5,6 +5,8 @@ import struct
 import tempfile
 import time
 import zlib
+import random
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -28,7 +30,7 @@ st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon=
 # =========================
 def ss_init():
     defaults = {
-        "view": "landing",  # landing, wizard, confirm, generate, done
+        "view": "landing",
         "step_index": 0,
         "answers": {},
         "api_key": "",
@@ -39,7 +41,7 @@ def ss_init():
         "model_used": "",
         "error": "",
         "plate_paths": {},
-        "asset_paths": {},  # cached downloaded assets
+        "asset_paths": {},
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -97,15 +99,6 @@ html, body { background: var(--bg); color: var(--fg); }
     radial-gradient(1100px 700px at 20% 35%, rgba(0,120,255,0.18), rgba(0,0,0,0) 60%),
     radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0) 55%),
     #0b0d11;
-}
-
-.card{
-  background: linear-gradient(180deg, var(--card), var(--card2));
-  border: 1px solid var(--stroke);
-  border-radius: 22px;
-  padding: 28px;
-  box-shadow: 0 30px 120px rgba(0,0,0,0.55);
-  backdrop-filter: blur(14px);
 }
 
 .eyebrow{
@@ -172,8 +165,6 @@ hr.soft{
   border: 1px solid rgba(255,255,255,0.12) !important;
 }
 
-.smallNote{ font-size: 12px; color: rgba(235,240,255,0.58); }
-
 label{
   font-size: 11px !important;
   letter-spacing: 0.12em;
@@ -181,12 +172,14 @@ label{
   color: rgba(235,240,255,0.55) !important;
   font-weight: 800 !important;
 }
+
 .stTextInput input, .stTextArea textarea{
   background: rgba(255,255,255,0.05) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
   border-radius: 14px !important;
   color: rgba(235,240,255,0.92) !important;
 }
+
 .stTextInput input:focus, .stTextArea textarea:focus{
   border: 1px solid rgba(28,125,255,0.75) !important;
   box-shadow: 0 0 0 5px rgba(28,125,255,0.18) !important;
@@ -194,7 +187,6 @@ label{
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .fadeIn { animation: fadeIn 220ms ease-out; }
-
 </style>
 """,
         unsafe_allow_html=True,
@@ -217,7 +209,7 @@ class Question:
     section_id: str
     title: str
     micro: str
-    qtype: str  # text, textarea, cards, checks
+    qtype: str
     key: str
     placeholder: str = ""
     options: list[str] | None = None
@@ -270,11 +262,7 @@ QUESTIONS: list[Question] = [
     Question("q17", "positioning", "Category you actually own", "The simplest category that makes you understood.", "text", "right_category",
              placeholder="Example: recovery tech"),
     Question("q18", "positioning", "Pick an animal for your posture and energy", "Useful shorthand. Not cute.", "cards", "animal",
-             options=[
-                 "Fox", "Hawk", "Panther", "Owl", "Dolphin",
-                 "Wolf", "Bear", "Raven", "Falcon", "Stallion",
-                 "Other"
-             ]),
+             options=["Fox", "Hawk", "Panther", "Owl", "Dolphin", "Wolf", "Bear", "Raven", "Falcon", "Stallion", "Other"]),
 
     Question("q19", "voice", "Three words you must sound like", "If you choose friendly, you have chosen nothing.", "text", "tone_words",
              placeholder="Example: precise, calm, bold"),
@@ -389,9 +377,16 @@ def build_prompt(answers: dict, version_str: str) -> str:
     schema = (
         "{\n"
         '  "meta": { "brand_name": "", "version": "", "date_utc": "" },\n'
-        '  "colors": { "primary_hex": "", "accent_hex": "", "neutral_hex": "", "background_hex": "" },\n'
-        '  "typography": { "primary_font": "", "secondary_font": "", "notes": "" },\n'
-        '  "hero": { "headline": "", "subhead": "" },\n'
+        '  "colors": {\n'
+        '    "primary_hex": "", "accent_hex": "", "neutral_hex": "", "background_hex": "",\n'
+        '    "primary_reason": "", "accent_reason": "", "neutral_reason": "", "background_reason": ""\n'
+        "  },\n"
+        '  "typography": {\n'
+        '    "primary_font": "", "secondary_font": "",\n'
+        '    "primary_use": "", "secondary_use": "",\n'
+        '    "rationale": ""\n'
+        "  },\n"
+        '  "hero": { "headline": "", "subhead": "", "deck_subtitle": "" },\n'
         '  "executive_summary": { "decisions": [""] },\n'
         '  "positioning": { "positioning_statement": "", "category": "", "anti_position": "" },\n'
         '  "audience": { "core_customer": "", "core_tension": "", "primary_objection": "", "trust_trigger": "" },\n'
@@ -403,23 +398,35 @@ def build_prompt(answers: dict, version_str: str) -> str:
         "}\n"
     )
 
+    font_pool = [
+        "Inter", "Manrope", "Plus Jakarta Sans", "Space Grotesk", "DM Sans",
+        "IBM Plex Sans", "Work Sans", "Sora", "Urbanist", "Outfit",
+        "Montserrat", "Raleway", "Source Sans 3", "Public Sans", "Rubik",
+        "Merriweather", "Lora", "Fraunces", "Cormorant Garamond", "Libre Baskerville"
+    ]
+
     prompt = (
         "You are a senior brand strategist and design director.\n"
-        "You do not describe. You decide.\n"
+        "You decide. You do not describe.\n"
         "Be opinionated, concise, and practical.\n"
         "Avoid cliches and startup hype.\n"
-        "Do not write essays.\n\n"
         "Return ONLY valid JSON that matches the schema exactly.\n"
         "No markdown. No commentary. No extra keys.\n\n"
         "COLOR RULES\n"
         "Return real hex colors.\n"
-        "primary_hex is the anchor.\n"
-        "accent_hex is used sparingly.\n"
-        "neutral_hex is surfaces.\n"
-        "background_hex is page vibe.\n\n"
+        "Each color must include a one sentence reason that connects to the brand.\n"
+        "No generic reasons.\n\n"
+        "TYPOGRAPHY RULES\n"
+        "Pick fonts that fit the brand.\n"
+        "Do not always pick Inter.\n"
+        "Choose from this pool when possible:\n"
+        f"{', '.join(font_pool)}\n"
+        "Explain the choice briefly in typography.rationale.\n"
+        "Define primary_use and secondary_use.\n\n"
         "HERO RULES\n"
         "hero.headline is 6 to 12 words.\n"
-        "hero.subhead is 1 sentence.\n\n"
+        "hero.subhead is 1 sentence.\n"
+        "hero.deck_subtitle must be short and premium.\n\n"
         "JSON SCHEMA\n"
         f"{schema}\n"
         "INPUT\n"
@@ -458,9 +465,9 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
 
 
 # =========================
-# Assets: curated photos (download once, cached)
+# Assets: curated photos
 # =========================
-PHOTO_QUERIES = {
+PHOTO_BASE = {
     "calm": [
         "minimal workspace natural light",
         "museum interior minimal",
@@ -468,8 +475,8 @@ PHOTO_QUERIES = {
         "stone texture close up",
         "quiet library interior",
         "soft shadow wall texture",
-        "minimal desk editorial",
-        "architectural corridor",
+        "architectural corridor symmetry",
+        "abstract light gradient texture",
     ],
     "bold": [
         "brutalist architecture dramatic light",
@@ -477,9 +484,9 @@ PHOTO_QUERIES = {
         "night city street neon reflection",
         "steel structure detail",
         "stark shadow silhouette",
-        "modern architecture night",
-        "dramatic chiaroscuro portrait",
         "industrial corridor moody",
+        "architectural facade high contrast",
+        "dark abstract texture",
     ],
     "precision": [
         "grid pattern macro",
@@ -504,18 +511,17 @@ PHOTO_QUERIES = {
 }
 
 
-
 def pick_photo_theme(answers: dict, schema: dict) -> str:
     energy = (answers.get("voice_energy", "") or "").strip()
     impression = (answers.get("first_impression", "") or "").strip()
     animal = (answers.get("animal", "") or "").strip()
     intent = ((schema.get("visual_direction", {}) or {}).get("intent", "") or "").lower()
 
-    if "clinical" in energy.lower() or "precision" in intent or "controlled" == impression:
+    if "clinical" in energy.lower() or "precision" in intent or impression == "Controlled":
         return "precision"
-    if energy in ["Bold", "Sharp"] or animal in ["Panther", "Falcon", "Hawk"] or "power" in impression.lower():
+    if energy in ["Bold", "Sharp"] or animal in ["Panther", "Falcon", "Hawk"] or impression == "Powerful":
         return "bold"
-    if energy in ["Warm"] or "warm" in intent or impression in ["Safe", "Curious"]:
+    if energy == "Warm" or "warm" in intent or impression in ["Safe", "Curious"]:
         return "warm"
     return "calm"
 
@@ -542,34 +548,88 @@ def _download_to_temp(url: str, key: str) -> str | None:
         return None
 
 
+def _file_sha1(path: str) -> str:
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 128), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
-def get_curated_images(theme: str, count: int = 8) -> list[str]:
-    queries = PHOTO_QUERIES.get(theme, PHOTO_QUERIES["calm"])
 
-    # Taka fleiri queries en count, svo við getum sleppt dud myndum án þess að enda tómir
-    want = max(count, 8)
+def build_image_queries(theme: str, answers: dict, schema: dict) -> list[str]:
+    base = list(PHOTO_BASE.get(theme, PHOTO_BASE["calm"]))
+
+    vis = schema.get("visual_direction", {}) or {}
+    kws = vis.get("imagery_keywords", []) or []
+    kws = [str(x).strip() for x in kws if str(x).strip()]
+
+    place = (answers.get("brand_place", "") or "").strip()
+    avoid = answers.get("avoid_vibes", []) or []
+    avoid = [str(x).strip() for x in avoid if str(x).strip()]
+
+    if place:
+        base.append(f"{place.lower()} interior minimal")
+        base.append(f"{place.lower()} material detail")
+    for k in kws[:10]:
+        base.append(k)
+
+    for a in avoid:
+        if a == "Lifestyle fluff":
+            base.append("no lifestyle staged interior")
+        if a == "Luxury cliche":
+            base.append("modern understated not luxury")
+        if a == "Startup hype":
+            base.append("editorial minimal not startup")
+
+    out: list[str] = []
+    seen = set()
+    for q in base:
+        qn = " ".join(q.split()).strip().lower()
+        if not qn or qn in seen:
+            continue
+        seen.add(qn)
+        out.append(qn)
+
+    return out
+
+
+def get_curated_images(theme: str, answers: dict, schema: dict, count: int, seed: int) -> list[str]:
+    queries = build_image_queries(theme, answers, schema)
+    rng = random.Random(seed)
+    rng.shuffle(queries)
+
     paths: list[str] = []
+    used_hashes: set[str] = set()
 
-    for i, qraw in enumerate(queries[:want]):
-        q = qraw.replace(" ", ",")
-        # sig brýtur cache hjá source.unsplash svo þú fáir ekki sama aftur og aftur
-        url = f"https://source.unsplash.com/2400x1600/?{q}&sig={i+1}"
-
-        # cache key byggt á theme + query + sig (ekki time.time)
-        key = f"unsplash_{theme}_{i}_{abs(hash(url))}"
-        p = _download_to_temp(url, key=key)
-        if p:
-            paths.append(p)
-        if len(paths) >= count:
+    tries = 0
+    while len(paths) < count and tries < max(30, count * 8):
+        tries += 1
+        if not queries:
             break
+        qraw = queries[tries % len(queries)]
+        q = qraw.replace(" ", ",")
+        sig = rng.randint(1, 2_000_000_000)
+        url = f"https://source.unsplash.com/2400x1600/?{q}&sig={sig}"
+        key = f"unsplash_run_{seed}_{sig}_{abs(hash(url))}"
+        p = _download_to_temp(url, key=key)
+        if not p:
+            continue
+        try:
+            if os.path.getsize(p) < 40_000:
+                continue
+            sh = _file_sha1(p)
+            if sh in used_hashes:
+                continue
+            used_hashes.add(sh)
+            paths.append(p)
+        except Exception:
+            continue
 
     return paths
 
 
-
-
 # =========================
-# Plates (generated PNG bytes, cached)
+# Plates
 # =========================
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     length = struct.pack(">I", len(data))
@@ -658,7 +718,7 @@ def _write_temp_png(png_bytes: bytes, key: str) -> str:
 
 
 # =========================
-# PDF rendering (A4 landscape, color pages, photos)
+# PDF
 # =========================
 def safe_text(s: str) -> str:
     if not s:
@@ -666,7 +726,7 @@ def safe_text(s: str) -> str:
     s = s.replace("\u2018", "'").replace("\u2019", "'")
     s = s.replace("\u201c", '"').replace("\u201d", '"')
     s = s.replace("\u2026", "...")
-    s = s.replace("\u2022", "-")
+    s = s.replace("\u2022", "•")
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
@@ -676,10 +736,12 @@ def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
 
 class BrandPDF(FPDF):
     def footer(self):
+        if self.page_no() == 1:
+            return
         self.set_y(-12)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(140, 140, 140)
-        self.cell(0, 10, safe_text(self._brand_name or ""), align="L")
+        self.cell(0, 10, safe_text(getattr(self, "_brand_name", "") or ""), align="L")
         self.set_x(-22)
         self.cell(12, 10, str(self.page_no()), align="R")
 
@@ -695,28 +757,107 @@ def full_bleed_image(pdf: BrandPDF, img_path: str):
     pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h)
 
 
-def hero_slide(pdf: BrandPDF, brand: str, headline: str, subhead: str, bg_rgb: tuple[int, int, int], plate_path: str | None = None):
-    if plate_path:
-        full_bleed_image(pdf, plate_path)
+def draw_cover_overlay(pdf: BrandPDF):
+    pdf.set_fill_color(10, 12, 16)
+    pdf.rect(14, 36, 162, 132, style="F")
+
+
+def cover_page(pdf: BrandPDF, brand: str, subtitle: str, photo_path: str | None, plate_path: str):
+    if photo_path:
+        full_bleed_image(pdf, photo_path)
     else:
-        full_bleed_color(pdf, bg_rgb)
+        full_bleed_image(pdf, plate_path)
 
-    tc = text_color_for_bg(bg_rgb)
-    pdf.set_text_color(*tc)
+    draw_cover_overlay(pdf)
 
+    pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 44)
-    pdf.set_xy(20, 58)
-    pdf.multi_cell(0, 18, safe_text(brand))
+    pdf.set_xy(22, 60)
+    pdf.multi_cell(150, 16, safe_text(brand))
 
-    if headline:
-        pdf.set_font("Helvetica", "B", 30)
-        pdf.set_xy(20, 92)
-        pdf.multi_cell(0, 13, safe_text(headline))
+    pdf.set_font("Helvetica", "", 14)
+    pdf.set_xy(22, 126)
+    pdf.multi_cell(150, 8, safe_text(subtitle))
 
-    if subhead:
-        pdf.set_font("Helvetica", "", 14)
-        pdf.set_xy(20, 132)
-        pdf.multi_cell(160, 8, safe_text(subhead))
+
+def intro_spread(pdf: BrandPDF, brand: str, date_utc: str, image_path: str | None, accent: tuple[int, int, int]):
+    pdf.add_page(orientation="L")
+    pdf.set_fill_color(248, 249, 251)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
+    left_x = 20
+    top_y = 22
+    left_w = 150
+    right_x = 178
+    right_w = pdf.w - right_x - 20
+    img_h = 140
+
+    pdf.set_text_color(18, 22, 30)
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.set_xy(left_x, top_y)
+    pdf.multi_cell(left_w, 10, safe_text("How to use this"))
+
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.2)
+    pdf.line(left_x, top_y + 20, left_x + 70, top_y + 20)
+
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(55, 55, 55)
+    pdf.set_xy(left_x, top_y + 28)
+    text = (
+        "This is a decision system.\n"
+        "Use it to keep voice, visuals, and messaging consistent.\n\n"
+        "Start here when writing copy, selecting imagery, designing pages, or approving work.\n"
+        "If a decision conflicts with this document, the document wins.\n\n"
+        f"Generated for {safe_text(brand)} on {safe_text(date_utc)}."
+    )
+    pdf.multi_cell(left_w, 6.5, safe_text(text))
+
+    if image_path:
+        try:
+            pdf.image(image_path, x=right_x, y=top_y, w=right_w, h=img_h)
+        except Exception:
+            pass
+
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.0)
+    pdf.rect(right_x, top_y, right_w, img_h)
+
+
+def contents_page(pdf: BrandPDF, accent: tuple[int, int, int]):
+    pdf.add_page(orientation="L")
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
+    pdf.set_text_color(18, 22, 30)
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.set_xy(20, 22)
+    pdf.cell(0, 10, safe_text("Contents"))
+
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.2)
+    pdf.line(20, 38, 90, 38)
+
+    items = [
+        ("Executive summary", 4),
+        ("Positioning", 6),
+        ("Audience", 8),
+        ("Messaging", 10),
+        ("Voice", 12),
+        ("Visual direction", 15),
+        ("Guardrails", 18),
+        ("How to use this", 19),
+    ]
+
+    y = 54
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_text_color(55, 55, 55)
+    for title, page in items:
+        pdf.set_xy(20, y)
+        pdf.cell(160, 8, safe_text(title))
+        pdf.set_xy(170, y)
+        pdf.cell(0, 8, str(page), align="R")
+        y += 10
 
 
 def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, int, int]):
@@ -733,21 +874,30 @@ def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, 
     pdf.multi_cell(190, 9, safe_text(subtitle))
 
 
-def power_slide(pdf: BrandPDF, words: list[str], bg_rgb: tuple[int, int, int]):
-    full_bleed_color(pdf, bg_rgb)
-    tc = text_color_for_bg(bg_rgb)
-    pdf.set_text_color(*tc)
-    pdf.set_font("Helvetica", "B", 58)
+def photo_opener(pdf: BrandPDF, title: str, subtitle: str, image_path: str, accent: tuple[int, int, int]):
+    full_bleed_image(pdf, image_path)
+    pdf.set_fill_color(10, 12, 16)
+    pdf.rect(14, 58, 190, 86, style="F")
 
-    y = 62
-    for w in words[:4]:
-        pdf.set_xy(20, y)
-        pdf.cell(0, 20, safe_text(w))
-        y += 28
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 44)
+    pdf.set_xy(22, 74)
+    pdf.multi_cell(180, 16, safe_text(title))
+
+    pdf.set_font("Helvetica", "", 14)
+    pdf.set_xy(22, 122)
+    pdf.multi_cell(170, 8, safe_text(subtitle))
+
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.2)
+    pdf.line(22, 142, 90, 142)
 
 
-def content_page_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]):
+def content_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
     pdf.set_text_color(18, 22, 30)
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_xy(20, 18)
@@ -757,10 +907,10 @@ def content_page_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]
     pdf.set_line_width(1.2)
     pdf.line(20, 32, 90, 32)
 
-    pdf.set_xy(20, 40)
+    pdf.set_xy(20, 44)
 
 
-def body_paras(pdf: BrandPDF, text: str):
+def body_paras(pdf: BrandPDF, text: str, width: float = 200):
     t = safe_text((text or "").strip())
     if not t:
         return
@@ -771,11 +921,11 @@ def body_paras(pdf: BrandPDF, text: str):
         if not p:
             pdf.ln(2)
             continue
-        pdf.multi_cell(0, 6.8, p)
+        pdf.multi_cell(width, 6.8, p)
         pdf.ln(1.6)
 
 
-def bullet_list(pdf: BrandPDF, items: list[str], max_items: int = 8):
+def bullet_list(pdf: BrandPDF, items: list[str], max_items: int = 8, width: float = 200):
     pdf.set_font("Helvetica", "", 11)
     pdf.set_text_color(35, 35, 35)
     n = 0
@@ -785,7 +935,7 @@ def bullet_list(pdf: BrandPDF, items: list[str], max_items: int = 8):
         s = safe_text((it or "").strip())
         if not s:
             continue
-        pdf.multi_cell(0, 6.8, f"- {s}")
+        pdf.multi_cell(width, 6.8, f"• {s}")
         n += 1
     pdf.ln(1.5)
 
@@ -809,13 +959,12 @@ def two_col_lists(pdf: BrandPDF, left_title: str, left_items: list[str], right_t
 
         pdf.set_text_color(35, 35, 35)
         pdf.set_font("Helvetica", "", 11)
-        y = pdf.get_y()
         for it in (items or [])[:8]:
             s = safe_text((it or "").strip())
             if not s:
                 continue
             pdf.set_x(x)
-            pdf.multi_cell(col_w, 6.6, f"- {s}")
+            pdf.multi_cell(col_w, 6.6, f"• {s}")
             pdf.ln(1)
         return pdf.get_y()
 
@@ -824,94 +973,119 @@ def two_col_lists(pdf: BrandPDF, left_title: str, left_items: list[str], right_t
     pdf.set_y(max(ly, ry) + 4)
 
 
-def palette_poster(pdf: BrandPDF, colors: dict, accent: tuple[int, int, int]):
+def palette_and_type_spread(pdf: BrandPDF, colors: dict, typography: dict, accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
+    left_x = 20
+    top_y = 18
+    mid_x = pdf.w / 2 + 6
+
     pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_xy(20, 18)
-    pdf.cell(0, 10, "Color palette")
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_xy(left_x, top_y)
+    pdf.cell(0, 10, safe_text("Color palette"))
 
     pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(20, 32, 92, 32)
+    pdf.set_line_width(1.1)
+    pdf.line(left_x, top_y + 14, left_x + 62, top_y + 14)
 
     blocks = [
-        ("Primary", colors.get("primary_hex", "")),
-        ("Accent", colors.get("accent_hex", "")),
-        ("Neutral", colors.get("neutral_hex", "")),
-        ("Background", colors.get("background_hex", "")),
+        ("Primary", colors.get("primary_hex", ""), colors.get("primary_reason", "")),
+        ("Accent", colors.get("accent_hex", ""), colors.get("accent_reason", "")),
+        ("Neutral", colors.get("neutral_hex", ""), colors.get("neutral_reason", "")),
+        ("Background", colors.get("background_hex", ""), colors.get("background_reason", "")),
     ]
-    x = 20
-    y = 50
-    w = 62
-    h = 34
-    for name, hx in blocks:
+
+    y = 44
+    sw = 56
+    sh = 20
+    for name, hx, reason in blocks:
         rgb = _hex_to_rgb(hx, (220, 220, 220))
         pdf.set_fill_color(*rgb)
-        pdf.rect(x, y, w, h, style="F")
+        pdf.rect(left_x, y, sw, sh, style="F")
 
         pdf.set_text_color(18, 22, 30)
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_xy(x, y + h + 6)
-        pdf.cell(w, 7, safe_text(name), align="L")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_xy(left_x + sw + 8, y)
+        pdf.cell(0, 6, safe_text(f"{name}  {safe_text(_rgb_to_hex(rgb))}"))
 
-        pdf.set_text_color(80, 80, 80)
-        pdf.set_font("Helvetica", "", 11)
-        pdf.set_xy(x, y + h + 14)
-        pdf.cell(w, 7, safe_text(_rgb_to_hex(rgb)), align="L")
+        pdf.set_text_color(70, 70, 70)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_xy(left_x + sw + 8, y + 7)
+        pdf.multi_cell(96, 5.5, safe_text((reason or "").strip()))
 
-        x += w + 10
-        if x + w > pdf.w - 20:
-            x = 20
-            y += 62
+        y += 30
 
-
-def typography_poster(pdf: BrandPDF, typography: dict, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
     pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_xy(20, 18)
-    pdf.cell(0, 10, "Typography")
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_xy(mid_x, top_y)
+    pdf.cell(0, 10, safe_text("Typography"))
 
     pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(20, 32, 84, 32)
+    pdf.set_line_width(1.1)
+    pdf.line(mid_x, top_y + 14, mid_x + 58, top_y + 14)
 
-    primary = safe_text((typography.get("primary_font", "") or "").strip())
-    secondary = safe_text((typography.get("secondary_font", "") or "").strip())
-    notes = safe_text((typography.get("notes", "") or "").strip())
-
-    pdf.set_font("Helvetica", "B", 56)
-    pdf.set_xy(20, 58)
-    pdf.cell(0, 20, "Aa")
+    primary = safe_text((typography.get("primary_font", "") or "").strip()) or "Modern sans"
+    secondary = safe_text((typography.get("secondary_font", "") or "").strip()) or "Optional supporting font"
+    pu = safe_text((typography.get("primary_use", "") or "").strip())
+    su = safe_text((typography.get("secondary_use", "") or "").strip())
+    rat = safe_text((typography.get("rationale", "") or "").strip())
 
     pdf.set_font("Helvetica", "B", 14)
-    pdf.set_xy(20, 92)
-    pdf.cell(0, 8, safe_text(f"Primary: {primary or 'Modern sans'}"))
+    pdf.set_text_color(18, 22, 30)
+    pdf.set_xy(mid_x, 44)
+    pdf.multi_cell(0, 7, safe_text(f"Primary: {primary}"))
 
-    pdf.set_font("Helvetica", "", 13)
-    pdf.set_xy(20, 104)
-    pdf.cell(0, 8, safe_text(f"Secondary: {secondary or 'Optional supporting font'}"))
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(70, 70, 70)
+    pdf.set_xy(mid_x, 58)
+    pdf.multi_cell(0, 5.8, safe_text(pu or "Use for headlines, key moments, and section titles."))
 
-    if notes:
-        pdf.set_font("Helvetica", "", 11)
-        pdf.set_text_color(60, 60, 60)
-        pdf.set_xy(20, 124)
-        pdf.multi_cell(0, 6.8, notes)
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.set_text_color(18, 22, 30)
+    pdf.set_xy(mid_x, 78)
+    pdf.multi_cell(0, 7, safe_text(f"Secondary: {secondary}"))
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(70, 70, 70)
+    pdf.set_xy(mid_x, 92)
+    pdf.multi_cell(0, 5.8, safe_text(su or "Use for body text, captions, and longer reading."))
+
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(70, 70, 70)
+    pdf.set_xy(mid_x, 116)
+    pdf.multi_cell(0, 5.8, safe_text(rat))
+
+    pdf.set_text_color(18, 22, 30)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_xy(mid_x, 146)
+    pdf.cell(0, 8, safe_text("Sample hierarchy"))
+
+    pdf.set_font("Helvetica", "B", 24)
+    pdf.set_xy(mid_x, 158)
+    pdf.multi_cell(0, 10, safe_text("Headline example"))
+
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_xy(mid_x, 182)
+    pdf.multi_cell(92, 6.5, safe_text("Body text example. Short sentences. Clear meaning. No fluff. This should feel like the brand."))
 
 
 def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
     pdf.set_text_color(18, 22, 30)
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_xy(20, 18)
-    pdf.cell(0, 10, "Moodboard")
+    pdf.cell(0, 10, safe_text("Moodboard"))
 
     pdf.set_draw_color(*accent)
     pdf.set_line_width(1.2)
     pdf.line(20, 32, 86, 32)
 
-    # 6 images grid: 3 columns, 2 rows
     x0 = 20
     y0 = 44
     gap = 6
@@ -934,33 +1108,28 @@ def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int
             idx += 1
 
 
-def visual_spread(pdf: BrandPDF, image_path: str, caption: str, accent: tuple[int, int, int]):
-    full_bleed_image(pdf, image_path)
+def closing_page(pdf: BrandPDF, brand: str, headline: str, subhead: str, plate_path: str):
+    full_bleed_image(pdf, plate_path)
+    pdf.set_fill_color(10, 12, 16)
+    pdf.rect(14, 58, 190, 96, style="F")
+
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_xy(20, pdf.h - 40)
-    pdf.cell(0, 10, safe_text(caption))
+    pdf.set_font("Helvetica", "B", 40)
+    pdf.set_xy(22, 74)
+    pdf.multi_cell(180, 15, safe_text(brand))
 
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.4)
-    pdf.line(20, pdf.h - 28, 88, pdf.h - 28)
+    pdf.set_font("Helvetica", "B", 22)
+    pdf.set_xy(22, 118)
+    pdf.multi_cell(170, 10, safe_text(headline))
+
+    pdf.set_font("Helvetica", "", 12)
+    pdf.set_xy(22, 146)
+    pdf.multi_cell(170, 6.6, safe_text(subhead))
 
 
-def make_brand_plates(primary, accent, background, count=6) -> list[str]:
-    out = []
-    combos = [
-        (primary, accent, background),
-        (accent, primary, background),
-        (primary, background, accent),
-        (background, primary, accent),
-        (accent, background, primary),
-        (background, accent, primary),
-    ]
-    for i in range(count):
-        c1, c2, bg = combos[i % len(combos)]
-        png = _make_plate_png_bytes(1900, 1100, c1, c2, bg)
-        out.append(_write_temp_png(png, key=f"plate_{i}_{_rgb_to_hex(c1)}_{_rgb_to_hex(c2)}"))
-    return out
+def make_cover_plate(primary, accent, background) -> str:
+    cover_plate = _make_plate_png_bytes(1900, 1100, primary, accent, background)
+    return _write_temp_png(cover_plate, key=f"cover_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
 
 
 def render_pdf(schema: dict, answers: dict) -> bytes:
@@ -975,63 +1144,45 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     accent = _hex_to_rgb(colors.get("accent_hex", ""), (28, 125, 255))
     background = _hex_to_rgb(colors.get("background_hex", ""), (245, 246, 248))
 
-    # Plates
-    cover_plate = _make_plate_png_bytes(1900, 1100, primary, accent, background)
-    cover_plate_path = _write_temp_png(cover_plate, key=f"cover_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
+    cover_plate_path = make_cover_plate(primary, accent, background)
 
     pdf = BrandPDF(orientation="L", unit="mm", format="A4")
     pdf.set_auto_page_break(auto=True, margin=14)
     pdf._brand_name = brand
 
-    # Curated photos
+    seed = int(time.time_ns() & 0xFFFFFFFF)
     theme = pick_photo_theme(answers, schema)
-    photos = get_curated_images(theme, count=6)
-    if not photos:
-        photos = make_brand_plates(primary, accent, background, count=6)
-    hero_photo = photos[0] if photos else None
-    spread_photo = photos[1] if len(photos) > 1 else None
+    photos = get_curated_images(theme, answers, schema, count=10, seed=seed)
 
-    # Cover: photo if possible, otherwise plate
-    if hero_photo:
-        full_bleed_image(pdf, hero_photo)
-    else:
-        full_bleed_image(pdf, cover_plate_path)
+    hero_photo = photos[0] if len(photos) > 0 else None
+    intro_photo = photos[1] if len(photos) > 1 else None
+    pos_photo = photos[2] if len(photos) > 2 else hero_photo
+    msg_photo = photos[3] if len(photos) > 3 else hero_photo
+    vis_photo = photos[4] if len(photos) > 4 else hero_photo
+    mood = photos[4:10] if len(photos) >= 10 else photos[:6]
 
-    # Overlay cover text
-    bg_for_text = primary if hero_photo else background
-    tc = (255, 255, 255)
-    pdf.set_text_color(*tc)
-    pdf.set_font("Helvetica", "B", 46)
-    pdf.set_xy(20, 56)
-    pdf.multi_cell(0, 18, safe_text(brand))
+    deck_sub = (hero.get("deck_subtitle", "") or "").strip()
+    if not deck_sub:
+        deck_sub = "Brand system: A practical guide to brand consistency"
 
-    headline = safe_text((hero.get("headline", "") or "").strip())
-    subhead = safe_text((hero.get("subhead", "") or "").strip())
-    if headline:
-        pdf.set_font("Helvetica", "B", 30)
-        pdf.set_xy(20, 92)
-        pdf.multi_cell(0, 13, headline)
-    if subhead:
-        pdf.set_font("Helvetica", "", 14)
-        pdf.set_xy(20, 132)
-        pdf.multi_cell(165, 8, subhead)
+    cover_page(pdf, brand=brand, subtitle=deck_sub, photo_path=hero_photo, plate_path=cover_plate_path)
 
-    # Posters
-    palette_poster(pdf, colors, accent)
-    typography_poster(pdf, typo, accent)
+    intro_spread(pdf, brand=brand, date_utc=utc_date_str(), image_path=intro_photo, accent=accent)
 
-    # Executive summary
+    contents_page(pdf, accent=accent)
+
     section_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", primary)
-    content_page_heading(pdf, "Executive summary", accent)
+    content_heading(pdf, "Executive summary", accent)
     decisions = ((schema.get("executive_summary", {}) or {}).get("decisions", []) or [])
-    bullet_list(pdf, [d for d in decisions if (d or "").strip()], max_items=7)
+    bullet_list(pdf, [d for d in decisions if (d or "").strip()], max_items=8, width=200)
 
-    # Positioning
-    power_slide(pdf, ["CLARITY", "OVER", "COMFORT"], background)
-    section_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", background)
-    content_page_heading(pdf, "Positioning", accent)
+    if pos_photo:
+        photo_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", pos_photo, accent)
+    else:
+        section_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", background)
+    content_heading(pdf, "Positioning", accent)
     pos = schema.get("positioning", {}) or {}
-    body_paras(pdf, (pos.get("positioning_statement", "") or "").strip())
+    body_paras(pdf, (pos.get("positioning_statement", "") or "").strip(), width=200)
 
     left = []
     cat = (pos.get("category", "") or "").strip()
@@ -1041,28 +1192,29 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     right = [rc] if rc else []
     two_col_lists(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, generic."], accent)
 
-    # Audience
     section_opener(pdf, "Audience", "One real person. One real tension.", background)
-    content_page_heading(pdf, "Audience and insight", accent)
+    content_heading(pdf, "Audience and insight", accent)
     aud = schema.get("audience", {}) or {}
     bullet_list(pdf, [
         (aud.get("core_customer", "") or "").strip(),
         (aud.get("core_tension", "") or "").strip(),
         (aud.get("primary_objection", "") or "").strip(),
         (aud.get("trust_trigger", "") or "").strip(),
-    ], max_items=8)
+    ], max_items=8, width=200)
 
-    # Messaging
-    section_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", background)
-    content_page_heading(pdf, "Messaging system", accent)
+    if msg_photo:
+        photo_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", msg_photo, accent)
+    else:
+        section_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", background)
+    content_heading(pdf, "Messaging", accent)
     msg = schema.get("messaging", {}) or {}
-    body_paras(pdf, (msg.get("core_message", "") or "").strip())
+    body_paras(pdf, (msg.get("core_message", "") or "").strip(), width=200)
 
     kms = (msg.get("key_messages", []) or [])[:3]
     if kms:
         pdf.set_font("Helvetica", "B", 12)
         pdf.set_text_color(18, 22, 30)
-        pdf.cell(0, 7, "Key messages", ln=1)
+        pdf.cell(0, 7, safe_text("Key messages"), ln=1)
         pdf.ln(2)
         for km in kms:
             m = safe_text((km.get("message", "") or "").strip())
@@ -1070,18 +1222,17 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
             if m:
                 pdf.set_font("Helvetica", "B", 11)
                 pdf.set_text_color(18, 22, 30)
-                pdf.multi_cell(0, 6.8, m)
+                pdf.multi_cell(200, 6.8, m)
             if p:
                 pdf.set_font("Helvetica", "", 10)
                 pdf.set_text_color(70, 70, 70)
-                pdf.multi_cell(0, 6.2, p)
+                pdf.multi_cell(200, 6.2, p)
             pdf.ln(2)
 
-    # Voice
     section_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", primary)
-    content_page_heading(pdf, "Voice rules", accent)
+    content_heading(pdf, "Voice rules", accent)
     voice = schema.get("voice", {}) or {}
-    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], max_items=7)
+    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], max_items=7, width=200)
     two_col_lists(
         pdf,
         "Do say",
@@ -1090,22 +1241,24 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         [x for x in (voice.get("do_not_say", []) or []) if (x or "").strip()],
         accent
     )
+
     ex = voice.get("examples", {}) or {}
     before = (ex.get("before", "") or "").strip()
     after = (ex.get("after", "") or "").strip()
     if before and after:
-        content_page_heading(pdf, "Voice example", accent)
+        content_heading(pdf, "Voice example", accent)
         two_col_lists(pdf, "Before", [before], "After", [after], accent)
 
-    # Visual direction: photo spread + moodboard + rules
-    section_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", background)
-    vis = schema.get("visual_direction", {}) or {}
-    if spread_photo:
-        visual_spread(pdf, spread_photo, "Mood reference", accent)
-    moodboard_page(pdf, photos[:6], accent)
+    if vis_photo:
+        photo_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", vis_photo, accent)
+    else:
+        section_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", background)
 
-    content_page_heading(pdf, "Visual direction", accent)
-    body_paras(pdf, (vis.get("intent", "") or "").strip())
+    moodboard_page(pdf, mood, accent)
+
+    content_heading(pdf, "Visual direction", accent)
+    vis = schema.get("visual_direction", {}) or {}
+    body_paras(pdf, (vis.get("intent", "") or "").strip(), width=200)
     two_col_lists(
         pdf,
         "Feels like",
@@ -1115,27 +1268,21 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         accent
     )
 
-    # Guardrails
+    palette_and_type_spread(pdf, colors, typo, accent)
+
     section_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", primary)
-    content_page_heading(pdf, "Guardrails", accent)
+    content_heading(pdf, "Guardrails", accent)
     guard = schema.get("guardrails", {}) or {}
-    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], max_items=10)
+    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], max_items=10, width=200)
 
-    # Usage
     section_opener(pdf, "How to use this", "Open this when the team starts to drift.", background)
-    content_page_heading(pdf, "How to use this", accent)
+    content_heading(pdf, "How to use this", accent)
     usage = schema.get("usage", {}) or {}
-    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], max_items=10)
+    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], max_items=10, width=200)
 
-    # Closing hero
-    hero_slide(
-        pdf,
-        brand=brand,
-        headline=headline or "A brand system you can actually follow",
-        subhead=subhead or "Consistency is not a feeling. It is a set of rules.",
-        bg_rgb=background,
-        plate_path=cover_plate_path
-    )
+    headline = safe_text((hero.get("headline", "") or "").strip()) or "A brand system you can actually follow"
+    subhead = safe_text((hero.get("subhead", "") or "").strip()) or "Consistency is not a feeling. It is a set of rules."
+    closing_page(pdf, brand=brand, headline=headline, subhead=subhead, plate_path=cover_plate_path)
 
     return pdf.output(dest="S").encode("latin-1", "replace")
 
@@ -1143,16 +1290,13 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
 # =========================
 # UI helpers
 # =========================
-
 def render_progress(step_index: int, steps: list[dict]):
     total = len([s for s in steps if s["type"] == "question"])
-    current_q = 0
     seen = 0
     for i in range(step_index + 1):
         if steps[i]["type"] == "question":
             seen += 1
     current_q = max(1, seen) if total else 0
-
     st.progress(min(max((step_index + 1) / max(len(steps), 1), 0.0), 1.0))
     st.caption(f"Question {current_q} of {total}")
 
@@ -1237,7 +1381,6 @@ def landing_view():
         """,
         unsafe_allow_html=True,
     )
-
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 2], gap="large")
@@ -1265,8 +1408,6 @@ def landing_view():
         st.info("Developer note: Set GEMINI_API_KEY in secrets.toml. This app also needs requests for curated imagery.")
         with st.expander("Developer settings"):
             st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
-
-    
 
 
 def wizard_view():
@@ -1314,8 +1455,6 @@ def wizard_view():
                     st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    
-
 
 def confirm_view():
     st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
@@ -1349,8 +1488,6 @@ def confirm_view():
             go("generate")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    
-
 
 def generate_view():
     st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
@@ -1364,7 +1501,6 @@ def generate_view():
         if st.button("Back"):
             go("landing")
         st.markdown("</div>", unsafe_allow_html=True)
-        
         return
 
     remaining = st.session_state.gen_max - st.session_state.gen_used
@@ -1374,7 +1510,6 @@ def generate_view():
         if st.button("Back"):
             go("done" if st.session_state.pdf_bytes else "confirm")
         st.markdown("</div>", unsafe_allow_html=True)
-        
         return
 
     genai.configure(api_key=api_key)
@@ -1386,7 +1521,6 @@ def generate_view():
         if st.button("Back"):
             go("wizard")
         st.markdown("</div>", unsafe_allow_html=True)
-        
         return
 
     prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
@@ -1415,7 +1549,6 @@ def generate_view():
         if st.button("Back"):
             go("confirm")
         st.markdown("</div>", unsafe_allow_html=True)
-
 
 
 def done_view():
@@ -1460,12 +1593,11 @@ def done_view():
 
     with st.expander("Preview JSON", expanded=False):
         st.json(st.session_state.last_json or {})
-    
+
+    if st.session_state.model_used:
+        st.caption(f"Model used: {st.session_state.model_used}")
 
 
-# =========================
-# Main
-# =========================
 def main():
     ss_init()
     inject_css()
