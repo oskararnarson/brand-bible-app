@@ -1,6 +1,6 @@
 streamlit
 google-generativeai
-fpdf
+fpdf2>=2.7.8
 beautifulsoup4
 requests
 reportlab==4.2.2
