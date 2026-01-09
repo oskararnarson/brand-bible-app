@@ -1443,7 +1443,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     return str(out).encode("latin-1", "replace")
 
     if not pdf.fonts.loaded:
-    schema = sanitize_obj(schema)
+        schema = sanitize_obj(schema)
 
 # =========================
 # UI helpers
