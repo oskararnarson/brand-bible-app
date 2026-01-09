@@ -1,363 +1,43 @@
 import json
-import os
 import re
-import struct
-import tempfile
 import time
-import zlib
-import random
 import hashlib
+import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Dict, List, Tuple, Optional
 
-import concurrent.futures
 import streamlit as st
-import google.generativeai as genai
-from fpdf import FPDF
 
-try:
-    import requests
-except Exception:
-    requests = None
+import google.generativeai as genai
+
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib.units import mm
+from reportlab.lib import colors as rl_colors
+from reportlab.pdfgen import canvas
+from reportlab.platypus import Paragraph
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.enums import TA_LEFT
+from reportlab.pdfbase.pdfmetrics import stringWidth
+
+from PIL import Image, ImageDraw, ImageFilter
 
 
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
 
 
-# =========================
-# Session state
-# =========================
-def ss_init():
-    defaults = {
-        "view": "landing",
-        "step_index": 0,
-        "answers": {},
-        "api_key": "",
-        "gen_used": 0,
-        "gen_max": 5,
-        "last_json": None,
-        "pdf_bytes": None,
-        "model_used": "",
-        "error": "",
-        "plate_paths": {},
-        "asset_paths": {},
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state:
-            st.session_state[k] = v
-
-    if not st.session_state.api_key:
-        st.session_state.api_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
-
-
-def go(view: str):
-    st.session_state.view = view
-    st.rerun()
-
-
-def reset_app(keep_api_key: bool = True):
-    api_key = st.session_state.api_key
-    plate_paths = st.session_state.plate_paths
-    asset_paths = st.session_state.asset_paths
-    st.session_state.clear()
-    ss_init()
-    st.session_state.plate_paths = plate_paths
-    st.session_state.asset_paths = asset_paths
-    if keep_api_key:
-        st.session_state.api_key = api_key
-
-
-# =========================
-# CSS
-# =========================
-def inject_css():
-    st.markdown(
-        """
-<style>
-#MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
-header { visibility: hidden; }
-
-.block-container { max-width: 1180px; padding-top: 7rem !important; padding-bottom: 3.2rem; }
-
-:root{
-  --bg:#0b0d11;
-  --fg:rgba(235,240,255,0.92);
-  --muted:rgba(235,240,255,0.70);
-  --muted2:rgba(235,240,255,0.55);
-  --card:rgba(255,255,255,0.06);
-  --card2:rgba(255,255,255,0.04);
-  --stroke:rgba(255,255,255,0.10);
-  --accent:#1c7dff;
-}
-
-html, body { background: var(--bg); color: var(--fg); }
-
-.stApp{
-  background:
-    radial-gradient(1100px 700px at 20% 35%, rgba(0,120,255,0.18), rgba(0,0,0,0) 60%),
-    radial-gradient(900px 600px at 80% 20%, rgba(255,255,255,0.06), rgba(0,0,0,0) 55%),
-    #0b0d11;
-}
-
-.eyebrow{
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted2);
-  margin-bottom: 10px;
-}
-
-.heroTitle{
-  font-size: 52px;
-  line-height: 1.05;
-  font-weight: 900;
-  margin: 0 0 10px 0;
-}
-
-.heroSub{
-  font-size: 16px;
-  line-height: 1.7;
-  color: var(--muted);
-  margin-bottom: 18px;
-  max-width: 860px;
-}
-
-hr.soft{
-  border:none;
-  height:1px;
-  background: rgba(255,255,255,0.08);
-  margin: 18px 0;
-}
-
-.pills{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px; }
-.pill{
-  font-size: 12px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  color: rgba(235,240,255,0.75);
-}
-
-.bigBtn div.stButton > button{
-  width: 290px;
-  height: 54px;
-  border-radius: 999px;
-  font-size: 18px;
-  font-weight: 900;
-  background: linear-gradient(180deg, #1c7dff, #0d5fe9) !important;
-  border: 1px solid rgba(255,255,255,0.14) !important;
-  box-shadow: 0 18px 50px rgba(0,110,255,0.35);
-}
-.bigBtn div.stButton > button:hover{
-  transform: translateY(-1px);
-  box-shadow: 0 22px 66px rgba(0,110,255,0.45);
-}
-
-.secondaryBtn div.stButton > button{
-  height: 44px;
-  border-radius: 14px;
-  font-weight: 900;
-  background: rgba(255,255,255,0.06) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-}
-
-label{
-  font-size: 11px !important;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(235,240,255,0.55) !important;
-  font-weight: 800 !important;
-}
-
-.stTextInput input, .stTextArea textarea{
-  background: rgba(255,255,255,0.05) !important;
-  border: 1px solid rgba(255,255,255,0.12) !important;
-  border-radius: 14px !important;
-  color: rgba(235,240,255,0.92) !important;
-}
-
-.stTextInput input:focus, .stTextArea textarea:focus{
-  border: 1px solid rgba(28,125,255,0.75) !important;
-  box-shadow: 0 0 0 5px rgba(28,125,255,0.18) !important;
-}
-
-@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.fadeIn { animation: fadeIn 220ms ease-out; }
-</style>
-""",
-        unsafe_allow_html=True,
-    )
-
-
-# =========================
-# Intake
-# =========================
-@dataclass
-class Section:
-    id: str
-    title: str
-    line: str
-
-
-@dataclass
-class Question:
-    id: str
-    section_id: str
-    title: str
-    micro: str
-    qtype: str
-    key: str
-    placeholder: str = ""
-    options: list[str] | None = None
-    required: bool = True
-
-
-SECTIONS = [
-    Section("foundation", "Foundation", "Brands are built on decisions, not descriptions."),
-    Section("audience", "Audience", "People buy relief, status, or clarity. Choose which one you deliver."),
-    Section("positioning", "Positioning", "If you do not define your position, the market will do it for you."),
-    Section("voice", "Voice", "Tone is what people remember when they forget details."),
-    Section("visual", "Visual direction", "Taste is a strategy, not decoration."),
-]
-
-QUESTIONS: list[Question] = [
-    Question("q1", "foundation", "Brand name", "The anchor. Everything else follows.", "text", "brand_name",
-             placeholder="Example: Oura"),
-    Question("q2", "foundation", "Define the brand in one sentence", "If this is vague, the rest becomes noise.", "textarea", "one_sentence",
-             placeholder="We help ... by ..."),
-    Question("q3", "foundation", "Why does this deserve to exist", "Not an origin story. The reason this matters.", "textarea", "why_exist",
-             placeholder="Because ..."),
-    Question("q4", "foundation", "What is the misunderstood problem you fix", "The lazy assumption you reject.", "textarea", "misunderstood_problem",
-             placeholder="Most people think ... but ..."),
-    Question("q5", "foundation", "What do you sell in reality", "Not the product. The outcome people pay for.", "textarea", "real_outcome",
-             placeholder="We sell ..."),
-    Question("q6", "foundation", "Your hard no", "The boundary that keeps the brand clean.", "textarea", "hard_no",
-             placeholder="We will never ..."),
-
-    Question("q7", "audience", "Describe one core customer you would recognize instantly", "Write one real person, not a segment.", "textarea", "core_customer",
-             placeholder="They are ... They care about ..."),
-    Question("q8", "audience", "What do they want but rarely say out loud", "This lever is where competitors usually fail.", "textarea", "secret_want",
-             placeholder="Secretly they want ..."),
-    Question("q9", "audience", "What stops them from buying", "Write the objection in their words.", "textarea", "primary_objection",
-             placeholder="I am not sure because ..."),
-    Question("q10", "audience", "What convinces them", "Proof they trust, not claims you like.", "textarea", "trust_trigger",
-             placeholder="They trust ..."),
-    Question("q11", "audience", "What misconception about your category must be broken", "The myth you refuse to repeat.", "textarea", "category_myth",
-             placeholder="People assume ..."),
-    Question("q12", "audience", "Worst experience they could have with you", "Define what must never happen.", "textarea", "worst_experience",
-             placeholder="They must never feel ..."),
-
-    Question("q13", "positioning", "What brand do you refuse to resemble", "Your anti model clarifies you fast.", "textarea", "anti_brand",
-             placeholder="We refuse to feel like ..."),
-    Question("q14", "positioning", "Finish: They are the brand that ...", "Write the truth, not a slogan.", "textarea", "positioning_sentence",
-             placeholder="They are the brand that ..."),
-    Question("q15", "positioning", "Your unfair advantage", "Hard to copy, even with money.", "textarea", "unfair_advantage",
-             placeholder="We have ... that others cannot ..."),
-    Question("q16", "positioning", "Wrong category people put you in", "Where people misfile you.", "text", "wrong_category",
-             placeholder="Example: productivity app"),
-    Question("q17", "positioning", "Category you actually own", "The simplest category that makes you understood.", "text", "right_category",
-             placeholder="Example: recovery tech"),
-    Question("q18", "positioning", "Pick an animal for your posture and energy", "Useful shorthand. Not cute.", "cards", "animal",
-             options=["Fox", "Hawk", "Panther", "Owl", "Dolphin", "Wolf", "Bear", "Raven", "Falcon", "Stallion", "Other"]),
-
-    Question("q19", "voice", "Three words you must sound like", "If you choose friendly, you have chosen nothing.", "text", "tone_words",
-             placeholder="Example: precise, calm, bold"),
-    Question("q20", "voice", "Three banned words", "If you use these, the brand becomes generic.", "text", "banned_words",
-             placeholder="Example: innovative, seamless, disruptive"),
-    Question("q21", "voice", "Your signature belief", "The opinion that creates gravity.", "textarea", "signature_belief",
-             placeholder="We believe ..."),
-    Question("q22", "voice", "One close sentence sales can use", "If this is unclear, the brand is unclear.", "textarea", "close_sentence",
-             placeholder="The simplest truth is ..."),
-    Question("q23", "voice", "What a satisfied customer would say", "Write it like a real person talking.", "textarea", "customer_quote",
-             placeholder="Honestly, I ..."),
-    Question("q24", "voice", "Choose your voice energy", "Choose energy, not adjectives.", "cards", "voice_energy",
-             options=["Calm", "Confident", "Bold", "Sharp", "Warm", "Clinical"]),
-
-    Question("q25", "visual", "Taste references and why", "Name them fast. One word why is enough.", "textarea", "taste_refs",
-             placeholder="Brand: why\nBrand: why"),
-    Question("q26", "visual", "Select vibes to avoid", "What would instantly make you look wrong.", "checks", "avoid_vibes",
-             options=["Corporate", "Startup hype", "Luxury cliche", "Playful cartoon", "Sterile tech", "Lifestyle fluff", "Trend chasing"]),
-    Question("q27", "visual", "If the brand were a place, what place is it", "Sets layout and atmosphere.", "cards", "brand_place",
-             options=["Gallery", "High end hotel", "Workshop", "Library", "Clinic", "Studio", "Other"]),
-    Question("q28", "visual", "What should people feel before they understand", "First impression matters more than features.", "cards", "first_impression",
-             options=["Calm", "Controlled", "Excited", "Safe", "Powerful", "Curious"]),
-    Question("q29", "visual", "What must never appear in your visuals", "Hard constraints save time later.", "textarea", "never_visuals",
-             placeholder="Never use ..."),
-    Question("q30", "visual", "What are you afraid this becomes if done wrong", "Name the failure mode.", "textarea", "fear",
-             placeholder="If we get this wrong, it becomes ..."),
-]
-
-
-def wizard_steps() -> list[dict]:
-    steps: list[dict] = []
-    for sec in SECTIONS:
-        steps.append({"type": "section", "section_id": sec.id})
-        for q in QUESTIONS:
-            if q.section_id == sec.id:
-                steps.append({"type": "question", "qid": q.id})
-    return steps
-
-
-def get_question(qid: str) -> Question:
-    for q in QUESTIONS:
-        if q.id == qid:
-            return q
-    raise KeyError(qid)
-
-
-def get_section(sid: str) -> Section:
-    for s in SECTIONS:
-        if s.id == sid:
-            return s
-    return SECTIONS[0]
-
-
-# =========================
-# Gemini
-# =========================
-PREFERRED_MODEL_CONTAINS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0",
-    "gemini",
-]
-
-
+# -------------------------
+# Core helpers
+# -------------------------
 def utc_date_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def list_generation_models() -> list[str]:
-    out: list[str] = []
-    try:
-        for m in genai.list_models():
-            name = getattr(m, "name", "") or ""
-            methods = getattr(m, "supported_generation_methods", None) or []
-            if name and "generateContent" in methods:
-                out.append(name)
-    except Exception:
-        return []
-    return out
-
-
-def choose_models_to_try() -> list[str]:
-    avail = list_generation_models()
-    if not avail:
-        return PREFERRED_MODEL_CONTAINS[:]
-    chosen: list[str] = []
-    for p in PREFERRED_MODEL_CONTAINS:
-        for n in avail:
-            if p in n and n not in chosen:
-                chosen.append(n)
-    for n in avail:
-        if n not in chosen:
-            chosen.append(n)
-    return chosen
+def clamp_str(s: str, max_chars: int) -> str:
+    s = (s or "").strip()
+    if len(s) <= max_chars:
+        return s
+    return s[: max(0, max_chars - 1)].rstrip() + "…"
 
 
 def extract_json_object(text: str) -> str:
@@ -370,7 +50,59 @@ def extract_json_object(text: str) -> str:
     return m.group(0).strip()
 
 
-def build_prompt(answers: dict, version_str: str) -> str:
+def hex_to_rgb(hx: str, fallback: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    hx = (hx or "").strip().lstrip("#")
+    if len(hx) != 6:
+        return fallback
+    try:
+        r = int(hx[0:2], 16)
+        g = int(hx[2:4], 16)
+        b = int(hx[4:6], 16)
+        return (r, g, b)
+    except Exception:
+        return fallback
+
+
+def rgb_to_hex(rgb: Tuple[int, int, int]) -> str:
+    r, g, b = rgb
+    return "#{:02X}{:02X}{:02X}".format(max(0, min(255, r)), max(0, min(255, g)), max(0, min(255, b)))
+
+
+def luma(rgb: Tuple[int, int, int]) -> float:
+    r, g, b = rgb
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def text_rgb_for_bg(bg: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    return (255, 255, 255) if luma(bg) < 140 else (18, 22, 30)
+
+
+def stable_int_hash(s: str) -> int:
+    h = hashlib.sha256((s or "").encode("utf-8")).hexdigest()
+    return int(h[:12], 16)
+
+
+# -------------------------
+# Gemini generation
+# -------------------------
+FONT_POOL = [
+    "Inter", "Manrope", "Plus Jakarta Sans", "Space Grotesk", "DM Sans",
+    "IBM Plex Sans", "Work Sans", "Sora", "Urbanist", "Outfit",
+    "Montserrat", "Raleway", "Source Sans 3", "Public Sans", "Rubik",
+    "Merriweather", "Lora", "Fraunces", "Cormorant Garamond", "Libre Baskerville"
+]
+
+
+def choose_models_to_try() -> List[str]:
+    # Keep it simple and resilient
+    return [
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-2.0-flash-exp",
+    ]
+
+
+def build_prompt(answers: Dict[str, Any], version_str: str) -> str:
     brand = (answers.get("brand_name", "") or "").strip()
     answers_json = json.dumps(answers, ensure_ascii=False, indent=2)
 
@@ -398,13 +130,6 @@ def build_prompt(answers: dict, version_str: str) -> str:
         "}\n"
     )
 
-    font_pool = [
-        "Inter", "Manrope", "Plus Jakarta Sans", "Space Grotesk", "DM Sans",
-        "IBM Plex Sans", "Work Sans", "Sora", "Urbanist", "Outfit",
-        "Montserrat", "Raleway", "Source Sans 3", "Public Sans", "Rubik",
-        "Merriweather", "Lora", "Fraunces", "Cormorant Garamond", "Libre Baskerville"
-    ]
-
     prompt = (
         "You are a senior brand strategist and design director.\n"
         "You decide. You do not describe.\n"
@@ -420,7 +145,7 @@ def build_prompt(answers: dict, version_str: str) -> str:
         "Pick fonts that fit the brand.\n"
         "Do not always pick Inter.\n"
         "Choose from this pool when possible:\n"
-        f"{', '.join(font_pool)}\n"
+        f"{', '.join(FONT_POOL)}\n"
         "Explain the choice briefly in typography.rationale.\n"
         "Define primary_use and secondary_use.\n\n"
         "HERO RULES\n"
@@ -440,1225 +165,810 @@ def build_prompt(answers: dict, version_str: str) -> str:
     return prompt
 
 
-def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
-    models_to_try = choose_models_to_try()
-    last_err: Exception | None = None
-    for model_name in models_to_try:
+def generate_schema(api_key: str, answers: Dict[str, Any], version_str: str, timeout_s: int = 35) -> Tuple[Dict[str, Any], str]:
+    genai.configure(api_key=api_key)
+
+    prompt = build_prompt(answers, version_str)
+    models = choose_models_to_try()
+    last_err: Optional[Exception] = None
+
+    for model_name in models:
         try:
             model = genai.GenerativeModel(model_name)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(model.generate_content, prompt)
-                resp = fut.result(timeout=timeout_s)
+            resp = model.generate_content(prompt, request_options={"timeout": timeout_s})
             raw = (getattr(resp, "text", "") or "").strip()
             data = json.loads(extract_json_object(raw))
-            data = sanitize_obj(data)
-            required = ["meta", "colors", "typography", "hero", "executive_summary", "positioning",
-                        "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]
+
+            required = [
+                "meta", "colors", "typography", "hero", "executive_summary", "positioning",
+                "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"
+            ]
             for k in required:
                 if k not in data:
                     raise ValueError("JSON missing required keys.")
+
+            data["meta"]["brand_name"] = data["meta"].get("brand_name") or (answers.get("brand_name") or "")
+            data["meta"]["version"] = version_str
+            data["meta"]["date_utc"] = utc_date_str()
             return data, model_name
-        except concurrent.futures.TimeoutError:
-            last_err = RuntimeError(f"Timeout after {timeout_s} seconds.")
+
         except Exception as e:
             last_err = e
+
     raise RuntimeError(f"Generation failed: {last_err}")
 
 
-# =========================
-# Assets: curated photos
-# =========================
-PHOTO_BASE = {
-    "calm": [
-        "minimal workspace natural light",
-        "museum interior minimal",
-        "concrete architecture detail",
-        "stone texture close up",
-        "quiet library interior",
-        "soft shadow wall texture",
-        "architectural corridor symmetry",
-        "abstract light gradient texture",
-    ],
-    "bold": [
-        "brutalist architecture dramatic light",
-        "high contrast portrait low key",
-        "night city street neon reflection",
-        "steel structure detail",
-        "stark shadow silhouette",
-        "industrial corridor moody",
-        "architectural facade high contrast",
-        "dark abstract texture",
-    ],
-    "precision": [
-        "grid pattern macro",
-        "lab interior clean",
-        "white studio product close up",
-        "industrial detail minimal",
-        "typography poster close up",
-        "architectural lines symmetry",
-        "blueprint technical drawing",
-        "precision instrument close up",
-    ],
-    "warm": [
-        "warm sunlight texture",
-        "hands craft detail",
-        "cozy modern interior minimal",
-        "golden hour portrait",
-        "wood texture close up",
-        "warm shadow wall",
-        "ceramic material detail",
-        "soft warm editorial",
-    ],
-}
+# -------------------------
+# Curated image generation
+# Procedural images, consistent per document, varied across runs
+# -------------------------
+def make_texture(seed: int, size: Tuple[int, int], palette: List[Tuple[int, int, int]]) -> Image.Image:
+    rng = random.Random(seed)
+    w, h = size
+    base = Image.new("RGB", (w, h), palette[0])
+    draw = ImageDraw.Draw(base)
+
+    # Soft gradient layers
+    for i in range(4):
+        c = palette[rng.randrange(0, len(palette))]
+        x0 = rng.randint(-w // 3, w)
+        y0 = rng.randint(-h // 3, h)
+        x1 = x0 + rng.randint(w // 2, w + w // 2)
+        y1 = y0 + rng.randint(h // 2, h + h // 2)
+        draw.ellipse([x0, y0, x1, y1], fill=c)
+
+    # Fine grain
+    noise = Image.effect_noise((w, h), rng.uniform(6.0, 14.0)).convert("L")
+    noise = noise.point(lambda p: int(p * rng.uniform(0.6, 1.0)))
+    base = Image.composite(base, Image.new("RGB", (w, h), palette[-1]), noise)
+
+    # Blur for premium feel
+    base = base.filter(ImageFilter.GaussianBlur(radius=rng.uniform(2.0, 6.0)))
+
+    # Subtle line system
+    draw = ImageDraw.Draw(base)
+    line_c = palette[rng.randrange(0, len(palette))]
+    line_c2 = tuple(int(x * 0.6) for x in line_c)
+    step = rng.randint(42, 88)
+    for x in range(-w, w * 2, step):
+        y = rng.randint(-h // 2, h + h // 2)
+        draw.line([(x, y), (x + w, y + rng.randint(-40, 40))], fill=line_c2, width=rng.randint(1, 2))
+
+    return base
 
 
-def pick_photo_theme(answers: dict, schema: dict) -> str:
-    energy = (answers.get("voice_energy", "") or "").strip()
-    impression = (answers.get("first_impression", "") or "").strip()
-    animal = (answers.get("animal", "") or "").strip()
-    intent = ((schema.get("visual_direction", {}) or {}).get("intent", "") or "").lower()
+def generate_curated_images(seed: int, colors_rgb: Dict[str, Tuple[int, int, int]]) -> Dict[str, Image.Image]:
+    primary = colors_rgb["primary"]
+    accent = colors_rgb["accent"]
+    neutral = colors_rgb["neutral"]
+    background = colors_rgb["background"]
 
-    if "clinical" in energy.lower() or "precision" in intent or impression == "Controlled":
-        return "precision"
-    if energy in ["Bold", "Sharp"] or animal in ["Panther", "Falcon", "Hawk"] or impression == "Powerful":
-        return "bold"
-    if energy == "Warm" or "warm" in intent or impression in ["Safe", "Curious"]:
-        return "warm"
-    return "calm"
+    palette = [primary, accent, neutral, background, (245, 245, 245)]
+    # Ensure contrast: reorder a bit
+    palette = sorted(palette, key=lambda c: luma(c))
 
-
-def _download_to_temp(url: str, key: str) -> str | None:
-    if key in st.session_state.asset_paths and os.path.exists(st.session_state.asset_paths[key]):
-        return st.session_state.asset_paths[key]
-
-    if requests is None:
-        return None
-
-    try:
-        headers = {"User-Agent": "BrandBibleGenerator/1.0"}
-        r = requests.get(url, timeout=18, headers=headers, allow_redirects=True)
-        if r.status_code != 200 or not r.content:
-            return None
-        f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        f.write(r.content)
-        f.flush()
-        f.close()
-        st.session_state.asset_paths[key] = f.name
-        return f.name
-    except Exception:
-        return None
+    # Slots: keep them stable across document
+    images = {
+        "hero": make_texture(seed + 11, (2400, 1600), palette[::-1]),
+        "support_1": make_texture(seed + 21, (2400, 1600), palette),
+        "support_2": make_texture(seed + 31, (2400, 1600), palette[::-1]),
+        "support_3": make_texture(seed + 41, (2400, 1600), palette),
+        "support_4": make_texture(seed + 51, (2400, 1600), palette[::-1]),
+    }
+    return images
 
 
-def _file_sha1(path: str) -> str:
-    h = hashlib.sha1()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 128), b""):
-            h.update(chunk)
-    return h.hexdigest()
+# -------------------------
+# PDF layout engine (ReportLab)
+# No overlap, fixed templates, controlled truncation
+# -------------------------
+PAGE_W, PAGE_H = landscape(A4)
+
+MARGIN_L = 18 * mm
+MARGIN_R = 18 * mm
+MARGIN_T = 16 * mm
+MARGIN_B = 14 * mm
+
+CONTENT_W = PAGE_W - MARGIN_L - MARGIN_R
+CONTENT_H = PAGE_H - MARGIN_T - MARGIN_B
+
+ACCENT_LINE_W = 70 * mm
+
+STYLE_H1 = ParagraphStyle(
+    "h1", fontName="Helvetica-Bold", fontSize=28, leading=32, textColor=rl_colors.HexColor("#12161E"), alignment=TA_LEFT
+)
+STYLE_H2 = ParagraphStyle(
+    "h2", fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=rl_colors.HexColor("#12161E"), alignment=TA_LEFT
+)
+STYLE_BODY = ParagraphStyle(
+    "body", fontName="Helvetica", fontSize=11, leading=15, textColor=rl_colors.HexColor("#232832"), alignment=TA_LEFT
+)
+STYLE_MUTED = ParagraphStyle(
+    "muted", fontName="Helvetica", fontSize=10, leading=14, textColor=rl_colors.HexColor("#505866"), alignment=TA_LEFT
+)
+STYLE_SMALL = ParagraphStyle(
+    "small", fontName="Helvetica", fontSize=9, leading=12, textColor=rl_colors.HexColor("#6B7380"), alignment=TA_LEFT
+)
 
 
-def build_image_queries(theme: str, answers: dict, schema: dict) -> list[str]:
-    base = list(PHOTO_BASE.get(theme, PHOTO_BASE["calm"]))
+def draw_page_number(c: canvas.Canvas, brand: str, page_no: int):
+    # Page numbering starts after cover
+    c.setFillColor(rl_colors.HexColor("#7C8696"))
+    c.setFont("Helvetica", 8)
+    c.drawString(MARGIN_L, 8 * mm, brand)
+    c.drawRightString(PAGE_W - MARGIN_R, 8 * mm, str(page_no))
 
-    vis = schema.get("visual_direction", {}) or {}
-    kws = vis.get("imagery_keywords", []) or []
-    kws = [str(x).strip() for x in kws if str(x).strip()]
 
-    place = (answers.get("brand_place", "") or "").strip()
-    avoid = answers.get("avoid_vibes", []) or []
-    avoid = [str(x).strip() for x in avoid if str(x).strip()]
+def draw_accent_rule(c: canvas.Canvas, x: float, y: float, accent_rgb: Tuple[int, int, int], w: float = ACCENT_LINE_W):
+    c.setStrokeColor(rl_colors.Color(accent_rgb[0] / 255, accent_rgb[1] / 255, accent_rgb[2] / 255))
+    c.setLineWidth(1.5)
+    c.line(x, y, x + w, y)
 
-    if place:
-        base.append(f"{place.lower()} interior minimal")
-        base.append(f"{place.lower()} material detail")
-    for k in kws[:10]:
-        base.append(k)
 
-    for a in avoid:
-        if a == "Lifestyle fluff":
-            base.append("no lifestyle staged interior")
-        if a == "Luxury cliche":
-            base.append("modern understated not luxury")
-        if a == "Startup hype":
-            base.append("editorial minimal not startup")
+def ptext(c: canvas.Canvas, x: float, y: float, w: float, h: float, text: str, style: ParagraphStyle) -> float:
+    # Fit paragraph into a box with truncation if needed
+    text = (text or "").strip()
+    if not text:
+        return y
 
-    out: list[str] = []
-    seen = set()
-    for q in base:
-        qn = " ".join(q.split()).strip().lower()
-        if not qn or qn in seen:
+    para = Paragraph(text.replace("\n", "<br/>"), style)
+    _, needed = para.wrap(w, h)
+    if needed <= h:
+        para.drawOn(c, x, y - needed)
+        return y - needed
+
+    # Truncate by characters until it fits
+    lo = 0
+    hi = len(text)
+    best = ""
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = clamp_str(text, mid)
+        para2 = Paragraph(candidate.replace("\n", "<br/>"), style)
+        _, need2 = para2.wrap(w, h)
+        if need2 <= h:
+            best = candidate
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    para3 = Paragraph(best.replace("\n", "<br/>"), style)
+    _, need3 = para3.wrap(w, h)
+    para3.drawOn(c, x, y - need3)
+    return y - need3
+
+
+def bullet_lines(items: List[str], max_items: int) -> List[str]:
+    out = []
+    for it in items or []:
+        s = (it or "").strip()
+        if not s:
             continue
-        seen.add(qn)
-        out.append(qn)
-
+        out.append(s)
+        if len(out) >= max_items:
+            break
     return out
 
 
-def get_curated_images(theme: str, answers: dict, schema: dict, count: int, seed: int) -> list[str]:
-    queries = build_image_queries(theme, answers, schema)
-    rng = random.Random(seed)
-    rng.shuffle(queries)
-
-    paths: list[str] = []
-    used_hashes: set[str] = set()
-
-    tries = 0
-    while len(paths) < count and tries < max(30, count * 8):
-        tries += 1
-        if not queries:
+def draw_bullets(c: canvas.Canvas, x: float, y: float, w: float, h: float, items: List[str], max_items: int) -> float:
+    lines = bullet_lines(items, max_items)
+    if not lines:
+        return y
+    # We render bullets as separate paragraphs to keep wrapping reliable
+    cur_y = y
+    for s in lines:
+        cur_y = ptext(c, x, cur_y, w, max(0.0, cur_y - (y - h)), f"• {s}", STYLE_BODY)
+        cur_y -= 2
+        if cur_y < (y - h) + 6:
             break
-        qraw = queries[tries % len(queries)]
-        q = qraw.replace(" ", ",")
-        sig = rng.randint(1, 2_000_000_000)
-        url = f"https://source.unsplash.com/2400x1600/?{q}&sig={sig}"
-        key = f"unsplash_run_{seed}_{sig}_{abs(hash(url))}"
-        p = _download_to_temp(url, key=key)
-        if not p:
-            continue
-        try:
-            if os.path.getsize(p) < 40_000:
-                continue
-            sh = _file_sha1(p)
-            if sh in used_hashes:
-                continue
-            used_hashes.add(sh)
-            paths.append(p)
-        except Exception:
-            continue
-
-    return paths
+    return cur_y
 
 
-# =========================
-# Plates
-# =========================
-def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
-    length = struct.pack(">I", len(data))
-    crc = zlib.crc32(chunk_type)
-    crc = zlib.crc32(data, crc)
-    crc_bytes = struct.pack(">I", crc & 0xFFFFFFFF)
-    return length + chunk_type + data + crc_bytes
-
-
-def _make_plate_png_bytes(w: int, h: int, c1: tuple[int, int, int], c2: tuple[int, int, int], bg: tuple[int, int, int]) -> bytes:
-    seed = (c1[0] << 16) + (c1[1] << 8) + c1[2] + (c2[0] << 8) + c2[1] + (bg[2] << 4)
-    x = seed & 0xFFFFFFFF
-
-    def rnd() -> int:
-        nonlocal x
-        x = (1664525 * x + 1013904223) & 0xFFFFFFFF
-        return x
-
-    scanlines = bytearray()
-    for y in range(h):
-        scanlines.append(0)
-        t = y / max(h - 1, 1)
-        for px in range(w):
-            u = px / max(w - 1, 1)
-            k = (u * 0.62 + t * 0.38)
-            r = int(c1[0] * (1 - k) + c2[0] * k)
-            g = int(c1[1] * (1 - k) + c2[1] * k)
-            b = int(c1[2] * (1 - k) + c2[2] * k)
-
-            n = (rnd() >> 24) - 128
-            n = int(n * 0.10)
-
-            dx = (u - 0.5)
-            dy = (t - 0.5)
-            v = 1.0 - min(0.55, (dx * dx + dy * dy) * 1.25)
-
-            r = int((r + bg[0]) * 0.5 * v + r * 0.5)
-            g = int((g + bg[1]) * 0.5 * v + g * 0.5)
-            b = int((b + bg[2]) * 0.5 * v + b * 0.5)
-
-            r = max(0, min(255, r + n))
-            g = max(0, min(255, g + n))
-            b = max(0, min(255, b + n))
-
-            scanlines.extend((r, g, b))
-
-    raw = bytes(scanlines)
-    compressed = zlib.compress(raw, level=7)
-
-    signature = b"\x89PNG\r\n\x1a\n"
-    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
-    return signature + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", compressed) + _png_chunk(b"IEND", b"")
-
-
-def _hex_to_rgb(h: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
-    hs = (h or "").strip()
-    if hs.startswith("#"):
-        hs = hs[1:]
-    if len(hs) != 6:
-        return fallback
-    try:
-        return (int(hs[0:2], 16), int(hs[2:4], 16), int(hs[4:6], 16))
-    except Exception:
-        return fallback
-
-
-def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
-    r, g, b = rgb
-    return f"#{r:02X}{g:02X}{b:02X}"
-
-
-def _luma(rgb: tuple[int, int, int]) -> float:
-    r, g, b = rgb
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _write_temp_png(png_bytes: bytes, key: str) -> str:
-    if key in st.session_state.plate_paths and os.path.exists(st.session_state.plate_paths[key]):
-        return st.session_state.plate_paths[key]
-    f = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{key}.png")
-    f.write(png_bytes)
-    f.flush()
+def pil_to_temp_png(img: Image.Image) -> str:
+    import tempfile
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    img.save(f.name, "PNG", optimize=True)
     f.close()
-    st.session_state.plate_paths[key] = f.name
     return f.name
 
 
-# =========================
-# PDF
-# =========================
-def safe_text(s: Any) -> str:
-    if s is None:
-        return ""
-    s = str(s)
-
-    # quotes
-    s = s.replace("\u2018", "'").replace("\u2019", "'")
-    s = s.replace("\u201c", '"').replace("\u201d", '"')
-
-    # ellipsis
-    s = s.replace("\u2026", "...")
-
-    # bullets og svipað
-    s = s.replace("\u2022", "*")   # bullet
-    s = s.replace("\u00B7", "*")   # middle dot
-    s = s.replace("\u25CF", "*")   # black circle
-    s = s.replace("\u25AA", "*")   # small square
-    s = s.replace("\u2023", "*")   # triangular bullet
-
-    # en dash og em dash
-    s = s.replace("\u2013", " ")
-    s = s.replace("\u2014", " ")
-
-    # force latin 1
-    return s.encode("latin-1", "replace").decode("latin-1")
-
-def sanitize_text(s: Any) -> str:
-    # tekur hvað sem er og skilar öruggum latin-1 streng
-    if s is None:
-        return ""
-    s = str(s)
-
-    # Algengir vandræðastafir
-    s = s.replace("\u2018", "'").replace("\u2019", "'")
-    s = s.replace("\u201c", '"').replace("\u201d", '"')
-    s = s.replace("\u2026", "...")
-    s = s.replace("\u2022", "-")   # bullet
-    s = s.replace("\u00B7", "-")   # middle dot
-    s = s.replace("\u25CF", "-")   # black circle bullet
-    s = s.replace("\u25AA", "-")   # small square bullet
-
-    # Force latin-1 safe
-    return s.encode("latin-1", "replace").decode("latin-1")
-
-def sanitize_obj(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {k: sanitize_obj(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [sanitize_obj(v) for v in obj]
-    if isinstance(obj, str):
-        return sanitize_text(obj)
-    return obj
+def draw_image_cover(c: canvas.Canvas, img_path: str):
+    c.drawImage(img_path, 0, 0, width=PAGE_W, height=PAGE_H, mask="auto")
 
 
-def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
-    return (255, 255, 255) if _luma(bg) < 145 else (18, 22, 30)
+def draw_cover(c: canvas.Canvas, brand: str, deck: str, img_path: str, primary_rgb: Tuple[int, int, int]):
+    draw_image_cover(c, img_path)
+
+    # Dark overlay panel
+    panel_x = 16 * mm
+    panel_y = 40 * mm
+    panel_w = 190 * mm
+    panel_h = 95 * mm
+
+    c.setFillColor(rl_colors.Color(0.04, 0.05, 0.07, alpha=0.92))
+    c.roundRect(panel_x, panel_y, panel_w, panel_h, 8, fill=1, stroke=0)
+
+    tc = text_rgb_for_bg((10, 12, 16))
+    c.setFillColor(rl_colors.Color(tc[0] / 255, tc[1] / 255, tc[2] / 255))
+
+    c.setFont("Helvetica-Bold", 46)
+    c.drawString(panel_x + 10 * mm, panel_y + panel_h - 26 * mm, brand)
+
+    c.setFont("Helvetica", 13)
+    # Keep deck short and premium
+    deck = clamp_str(deck, 120)
+    text_y = panel_y + 18 * mm
+    ptext(c, panel_x + 10 * mm, text_y + 26 * mm, panel_w - 20 * mm, 26 * mm, deck, STYLE_MUTED)
 
 
-class BrandPDF(FPDF):
-    def _textstring(self, s):
-        return super()._textstring(safe_text(s))
+def draw_title_page(c: canvas.Canvas, title: str, subtitle: str, bg_rgb: Tuple[int, int, int], accent_rgb: Tuple[int, int, int], page_no: int, brand: str):
+    c.setFillColor(rl_colors.Color(bg_rgb[0] / 255, bg_rgb[1] / 255, bg_rgb[2] / 255))
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
 
-    def footer(self):
-        self.set_y(-12)
-        self.set_font("Helvetica", "", 8)
-        self.set_text_color(140, 140, 140)
-        self.cell(0, 10, safe_text(self._brand_name or ""), align="L")
-        self.set_x(-22)
-        self.cell(12, 10, str(self.page_no()), align="R")
+    tc = text_rgb_for_bg(bg_rgb)
+    c.setFillColor(rl_colors.Color(tc[0] / 255, tc[1] / 255, tc[2] / 255))
+    c.setFont("Helvetica-Bold", 44)
+    c.drawString(MARGIN_L, PAGE_H / 2 + 12 * mm, title)
 
+    ptext(c, MARGIN_L, PAGE_H / 2 - 4 * mm, 200 * mm, 26 * mm, subtitle, ParagraphStyle(
+        "sub", parent=STYLE_MUTED, fontSize=14, leading=18,
+        textColor=rl_colors.Color(tc[0] / 255, tc[1] / 255, tc[2] / 255)
+    ))
 
-def full_bleed_color(pdf: BrandPDF, rgb: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(*rgb)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+    draw_page_number(c, brand, page_no)
 
 
-def full_bleed_image(pdf: BrandPDF, img_path: str):
-    pdf.add_page(orientation="L")
-    pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h)
+def draw_content_header(c: canvas.Canvas, title: str, accent_rgb: Tuple[int, int, int], page_no: int, brand: str):
+    c.setFillColor(rl_colors.white)
+    c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
+
+    c.setFillColor(rl_colors.HexColor("#12161E"))
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(MARGIN_L, PAGE_H - MARGIN_T - 4 * mm, title)
+
+    draw_accent_rule(c, MARGIN_L, PAGE_H - MARGIN_T - 10 * mm, accent_rgb, 70 * mm)
+    draw_page_number(c, brand, page_no)
 
 
-def draw_cover_overlay(pdf: BrandPDF):
-    pdf.set_fill_color(10, 12, 16)
-    pdf.rect(14, 36, 162, 132, style="F")
+def draw_how_to_use(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int):
+    draw_content_header(c, "How to use this", accent_rgb, page_no, brand)
 
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+    w = 150 * mm
+    h = 110 * mm
 
-def cover_page(pdf: BrandPDF, brand: str, subtitle: str, photo_path: str | None, plate_path: str):
-    if photo_path:
-        full_bleed_image(pdf, photo_path)
-    else:
-        full_bleed_image(pdf, plate_path)
-
-    draw_cover_overlay(pdf)
-
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 44)
-    pdf.set_xy(22, 60)
-    pdf.multi_cell(150, 16, safe_text(brand))
-
-    pdf.set_font("Helvetica", "", 14)
-    pdf.set_xy(22, 126)
-    pdf.multi_cell(150, 8, safe_text(subtitle))
-
-
-def intro_spread(pdf: BrandPDF, brand: str, date_utc: str, image_path: str | None, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(248, 249, 251)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-
-    left_x = 20
-    top_y = 22
-    left_w = 150
-    right_x = 178
-    right_w = pdf.w - right_x - 20
-    img_h = 140
-
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 22)
-    pdf.set_xy(left_x, top_y)
-    pdf.multi_cell(left_w, 10, safe_text("How to use this"))
-
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(left_x, top_y + 20, left_x + 70, top_y + 20)
-
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(55, 55, 55)
-    pdf.set_xy(left_x, top_y + 28)
     text = (
-        "This is a decision system.\n"
+        "This document is a decision system.\n"
         "Use it to keep voice, visuals, and messaging consistent.\n\n"
         "Start here when writing copy, selecting imagery, designing pages, or approving work.\n"
         "If a decision conflicts with this document, the document wins.\n\n"
-        f"Generated for {safe_text(brand)} on {safe_text(date_utc)}."
+        f"Generated for {brand} on {utc_date_str()}."
     )
-    pdf.multi_cell(left_w, 6.5, safe_text(text))
-
-    if image_path:
-        try:
-            pdf.image(image_path, x=right_x, y=top_y, w=right_w, h=img_h)
-        except Exception:
-            pass
-
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.0)
-    pdf.rect(right_x, top_y, right_w, img_h)
+    ptext(c, x, top, w, h, text, STYLE_BODY)
 
 
-def contents_page(pdf: BrandPDF, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+def draw_exec_summary(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, decisions: List[str]):
+    draw_content_header(c, "Executive summary", accent_rgb, page_no, brand)
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 24)
-    pdf.set_xy(20, 22)
-    pdf.cell(0, 10, safe_text("Contents"))
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+    draw_bullets(c, x, top, 210 * mm, 120 * mm, decisions, max_items=6)
 
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(20, 38, 90, 38)
+
+def draw_positioning(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, pos: Dict[str, Any]):
+    draw_content_header(c, "Positioning", accent_rgb, page_no, brand)
+
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+
+    statement = (pos.get("positioning_statement") or "").strip()
+    category = (pos.get("category") or "").strip()
+    anti = (pos.get("anti_position") or "").strip()
+
+    ptext(c, x, top, 210 * mm, 46 * mm, statement, STYLE_BODY)
+
+    # Two columns, boxed, fixed
+    col_w = (CONTENT_W - 10 * mm) / 2
+    box_h = 70 * mm
+    y_box_top = top - 58 * mm
+
+    # Left
+    c.setStrokeColor(rl_colors.HexColor("#E3E7EE"))
+    c.roundRect(x, y_box_top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x + 6 * mm, y_box_top - 8 * mm, col_w - 12 * mm, 16 * mm, "What we are", STYLE_H2)
+    left_lines = []
+    if category:
+        left_lines.append(f"Category: {category}")
+    left_lines = left_lines or ["Clear category ownership."]
+    draw_bullets(c, x + 6 * mm, y_box_top - 24 * mm, col_w - 12 * mm, box_h - 30 * mm, left_lines, max_items=5)
+
+    # Right
+    x2 = x + col_w + 10 * mm
+    c.roundRect(x2, y_box_top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x2 + 6 * mm, y_box_top - 8 * mm, col_w - 12 * mm, 16 * mm, "What we are not", STYLE_H2)
+    right_lines = [anti] if anti else ["Vague, polite, generic."]
+    draw_bullets(c, x2 + 6 * mm, y_box_top - 24 * mm, col_w - 12 * mm, box_h - 30 * mm, right_lines, max_items=5)
+
+
+def draw_audience(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, aud: Dict[str, Any]):
+    draw_content_header(c, "Audience and insight", accent_rgb, page_no, brand)
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
 
     items = [
-        ("Executive summary", 4),
-        ("Positioning", 6),
-        ("Audience", 8),
-        ("Messaging", 10),
-        ("Voice", 12),
-        ("Visual direction", 15),
-        ("Guardrails", 18),
-        ("How to use this", 19),
+        (aud.get("core_customer") or "").strip(),
+        (aud.get("core_tension") or "").strip(),
+        (aud.get("primary_objection") or "").strip(),
+        (aud.get("trust_trigger") or "").strip(),
     ]
-
-    y = 54
-    pdf.set_font("Helvetica", "", 12)
-    pdf.set_text_color(55, 55, 55)
-    for title, page in items:
-        pdf.set_xy(20, y)
-        pdf.cell(160, 8, safe_text(title))
-        pdf.set_xy(170, y)
-        pdf.cell(0, 8, str(page), align="R")
-        y += 10
+    draw_bullets(c, x, top, 210 * mm, 120 * mm, items, max_items=6)
 
 
-def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, int, int]):
-    full_bleed_color(pdf, bg_rgb)
-    tc = text_color_for_bg(bg_rgb)
-    pdf.set_text_color(*tc)
+def draw_messaging(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, msg: Dict[str, Any]):
+    draw_content_header(c, "Messaging", accent_rgb, page_no, brand)
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
 
-    pdf.set_font("Helvetica", "B", 46)
-    pdf.set_xy(20, 74)
-    pdf.cell(0, 18, safe_text(title))
+    core = (msg.get("core_message") or "").strip()
+    ptext(c, x, top, 210 * mm, 34 * mm, core, STYLE_BODY)
 
-    pdf.set_font("Helvetica", "", 16)
-    pdf.set_xy(20, 102)
-    pdf.multi_cell(190, 9, safe_text(subtitle))
-
-
-def photo_opener(pdf: BrandPDF, title: str, subtitle: str, image_path: str, accent: tuple[int, int, int]):
-    full_bleed_image(pdf, image_path)
-    pdf.set_fill_color(10, 12, 16)
-    pdf.rect(14, 58, 190, 86, style="F")
-
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 44)
-    pdf.set_xy(22, 74)
-    pdf.multi_cell(180, 16, safe_text(title))
-
-    pdf.set_font("Helvetica", "", 14)
-    pdf.set_xy(22, 122)
-    pdf.multi_cell(170, 8, safe_text(subtitle))
-
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(22, 142, 90, 142)
-
-
-def content_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_xy(20, 18)
-    pdf.cell(0, 10, safe_text(title))
-
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(20, 32, 90, 32)
-
-    pdf.set_xy(20, 44)
-
-
-def body_paras(pdf: BrandPDF, text: str, width: float = 200):
-    t = safe_text((text or "").strip())
-    if not t:
-        return
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(35, 35, 35)
-    for para in t.split("\n"):
-        p = para.strip()
-        if not p:
-            pdf.ln(2)
+    kms = (msg.get("key_messages") or [])[:3]
+    y = top - 42 * mm
+    for km in kms:
+        m = (km.get("message") or "").strip()
+        proof = (km.get("proof") or "").strip()
+        if not m:
             continue
-        pdf.multi_cell(width, 6.8, p)
-        pdf.ln(1.6)
 
+        ptext(c, x, y, 210 * mm, 16 * mm, m, ParagraphStyle("kmh", parent=STYLE_BODY, fontName="Helvetica-Bold"))
+        y -= 16 * mm
+        if proof:
+            ptext(c, x, y + 6 * mm, 210 * mm, 18 * mm, proof, STYLE_MUTED)
+            y -= 18 * mm
 
-def bullet_list(pdf: BrandPDF, items: list[str], max_items: int = 8, width: float = 200):
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(35, 35, 35)
-    n = 0
-    for it in items or []:
-        if n >= max_items:
+        y -= 4 * mm
+        if y < 40 * mm:
             break
-        s = safe_text((it or "").strip())
-        if not s:
-            continue
-        pdf.multi_cell(0, 6.8, safe_text(f"* {s}"))
-        n += 1
-    pdf.ln(1.5)
 
 
-def two_col_lists(pdf: BrandPDF, left_title: str, left_items: list[str], right_title: str, right_items: list[str], accent: tuple[int, int, int]):
-    col_gap = 10
-    x0 = 20
-    y0 = pdf.get_y()
-    col_w = (pdf.w - 40 - col_gap) / 2
+def draw_voice_rules(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, voice: Dict[str, Any]):
+    draw_content_header(c, "Voice rules", accent_rgb, page_no, brand)
 
-    def col(x: float, title: str, items: list[str]) -> float:
-        pdf.set_xy(x, y0)
-        pdf.set_text_color(18, 22, 30)
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(col_w, 7, safe_text(title), ln=1)
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
 
-        pdf.set_draw_color(*accent)
-        pdf.set_line_width(0.8)
-        pdf.line(x, pdf.get_y(), x + 38, pdf.get_y())
-        pdf.ln(5)
+    principles = (voice.get("principles") or [])[:6]
+    draw_bullets(c, x, top, 120 * mm, 60 * mm, principles, max_items=6)
 
-        pdf.set_text_color(35, 35, 35)
-        pdf.set_font("Helvetica", "", 11)
-        for it in (items or [])[:8]:
-            s = safe_text((it or "").strip())
-            if not s:
-                continue
-            pdf.set_x(x)
-            pdf.multi_cell(0, 6.8, safe_text(f"* {s}"))
-            pdf.ln(1)
-        return pdf.get_y()
+    col_w = (CONTENT_W - 10 * mm) / 2
+    box_h = 68 * mm
+    y_box_top = top - 70 * mm
 
-    ly = col(x0, left_title, left_items)
-    ry = col(x0 + col_w + col_gap, right_title, right_items)
-    pdf.set_y(max(ly, ry) + 4)
+    do_say = (voice.get("do_say") or [])[:7]
+    dont = (voice.get("do_not_say") or [])[:7]
+
+    c.setStrokeColor(rl_colors.HexColor("#E3E7EE"))
+    c.roundRect(x, y_box_top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x + 6 * mm, y_box_top - 8 * mm, col_w - 12 * mm, 14 * mm, "Do say", STYLE_H2)
+    draw_bullets(c, x + 6 * mm, y_box_top - 22 * mm, col_w - 12 * mm, box_h - 26 * mm, do_say, max_items=7)
+
+    x2 = x + col_w + 10 * mm
+    c.roundRect(x2, y_box_top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x2 + 6 * mm, y_box_top - 8 * mm, col_w - 12 * mm, 14 * mm, "Do not say", STYLE_H2)
+    draw_bullets(c, x2 + 6 * mm, y_box_top - 22 * mm, col_w - 12 * mm, box_h - 26 * mm, dont, max_items=7)
 
 
-def palette_and_type_spread(pdf: BrandPDF, colors: dict, typography: dict, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+def draw_voice_example(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, before: str, after: str):
+    draw_content_header(c, "Voice example", accent_rgb, page_no, brand)
 
-    left_x = 20
-    top_y = 18
-    mid_x = pdf.w / 2 + 6
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+    col_w = (CONTENT_W - 10 * mm) / 2
+    box_h = 110 * mm
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_xy(left_x, top_y)
-    pdf.cell(0, 10, safe_text("Color palette"))
+    c.setStrokeColor(rl_colors.HexColor("#E3E7EE"))
+    c.roundRect(x, top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x + 6 * mm, top - 8 * mm, col_w - 12 * mm, 14 * mm, "Before", STYLE_H2)
+    ptext(c, x + 6 * mm, top - 24 * mm, col_w - 12 * mm, box_h - 30 * mm, before, STYLE_BODY)
 
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.1)
-    pdf.line(left_x, top_y + 14, left_x + 62, top_y + 14)
+    x2 = x + col_w + 10 * mm
+    c.roundRect(x2, top - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x2 + 6 * mm, top - 8 * mm, col_w - 12 * mm, 14 * mm, "After", STYLE_H2)
+    ptext(c, x2 + 6 * mm, top - 24 * mm, col_w - 12 * mm, box_h - 30 * mm, after, STYLE_BODY)
+
+
+def draw_visual_direction(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, vis: Dict[str, Any], img_paths: Dict[str, str]):
+    draw_content_header(c, "Visual direction", accent_rgb, page_no, brand)
+
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+
+    intent = (vis.get("intent") or "").strip()
+    ptext(c, x, top, 210 * mm, 34 * mm, intent, STYLE_BODY)
+
+    # Mood grid uses the curated set, stable per document
+    grid_x = x
+    grid_y_top = top - 44 * mm
+    grid_w = 210 * mm
+    grid_h = 70 * mm
+
+    cell_w = (grid_w - 6 * mm) / 2
+    cell_h = (grid_h - 6 * mm) / 2
+
+    cells = [
+        ("support_1", 0, 0),
+        ("support_2", 1, 0),
+        ("support_3", 0, 1),
+        ("support_4", 1, 1),
+    ]
+    for key, cx, cy in cells:
+        px = grid_x + cx * (cell_w + 6 * mm)
+        py = (grid_y_top - (cy + 1) * cell_h - cy * 6 * mm)
+        c.drawImage(img_paths[key], px, py, width=cell_w, height=cell_h, mask="auto")
+
+    feels = (vis.get("feels_like") or [])[:6]
+    never = (vis.get("never_feels_like") or [])[:6]
+
+    y2 = grid_y_top - grid_h - 10 * mm
+    col_w = (CONTENT_W - 10 * mm) / 2
+    box_h = 48 * mm
+
+    c.setStrokeColor(rl_colors.HexColor("#E3E7EE"))
+    c.roundRect(x, y2 - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x + 6 * mm, y2 - 8 * mm, col_w - 12 * mm, 14 * mm, "Feels like", STYLE_H2)
+    draw_bullets(c, x + 6 * mm, y2 - 22 * mm, col_w - 12 * mm, box_h - 26 * mm, feels, max_items=6)
+
+    x2 = x + col_w + 10 * mm
+    c.roundRect(x2, y2 - box_h, col_w, box_h, 6, fill=0, stroke=1)
+    ptext(c, x2 + 6 * mm, y2 - 8 * mm, col_w - 12 * mm, 14 * mm, "Never feels like", STYLE_H2)
+    draw_bullets(c, x2 + 6 * mm, y2 - 22 * mm, col_w - 12 * mm, box_h - 26 * mm, never, max_items=6)
+
+
+def draw_color_palette(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, colors_obj: Dict[str, Any]):
+    draw_content_header(c, "Color palette", accent_rgb, page_no, brand)
+
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
 
     blocks = [
-        ("Primary", colors.get("primary_hex", ""), colors.get("primary_reason", "")),
-        ("Accent", colors.get("accent_hex", ""), colors.get("accent_reason", "")),
-        ("Neutral", colors.get("neutral_hex", ""), colors.get("neutral_reason", "")),
-        ("Background", colors.get("background_hex", ""), colors.get("background_reason", "")),
+        ("Primary", colors_obj.get("primary_hex"), colors_obj.get("primary_reason")),
+        ("Accent", colors_obj.get("accent_hex"), colors_obj.get("accent_reason")),
+        ("Neutral", colors_obj.get("neutral_hex"), colors_obj.get("neutral_reason")),
+        ("Background", colors_obj.get("background_hex"), colors_obj.get("background_reason")),
     ]
 
-    y = 44
-    sw = 56
-    sh = 20
+    sw_w = 58 * mm
+    sw_h = 16 * mm
+    row_h = 28 * mm
+
+    y = top
     for name, hx, reason in blocks:
-        rgb = _hex_to_rgb(hx, (220, 220, 220))
-        pdf.set_fill_color(*rgb)
-        pdf.rect(left_x, y, sw, sh, style="F")
+        rgb = hex_to_rgb(hx or "", (220, 220, 220))
+        c.setFillColor(rl_colors.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255))
+        c.roundRect(x, y - sw_h, sw_w, sw_h, 4, fill=1, stroke=0)
 
-        pdf.set_text_color(18, 22, 30)
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.set_xy(left_x + sw + 8, y)
-        pdf.cell(0, 6, safe_text(f"{name}  {safe_text(_rgb_to_hex(rgb))}"))
+        c.setFillColor(rl_colors.HexColor("#12161E"))
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(x + sw_w + 8 * mm, y - 6 * mm, f"{name}  {rgb_to_hex(rgb)}")
 
-        pdf.set_text_color(70, 70, 70)
-        pdf.set_font("Helvetica", "", 10)
-        pdf.set_xy(left_x + sw + 8, y + 7)
-        pdf.multi_cell(96, 5.5, safe_text((reason or "").strip()))
+        ptext(c, x + sw_w + 8 * mm, y - 12 * mm, 140 * mm, 14 * mm, (reason or "").strip(), STYLE_MUTED)
 
-        y += 30
-
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_xy(mid_x, top_y)
-    pdf.cell(0, 10, safe_text("Typography"))
-
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.1)
-    pdf.line(mid_x, top_y + 14, mid_x + 58, top_y + 14)
-
-    primary = safe_text((typography.get("primary_font", "") or "").strip()) or "Modern sans"
-    secondary = safe_text((typography.get("secondary_font", "") or "").strip()) or "Optional supporting font"
-    pu = safe_text((typography.get("primary_use", "") or "").strip())
-    su = safe_text((typography.get("secondary_use", "") or "").strip())
-    rat = safe_text((typography.get("rationale", "") or "").strip())
-
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_xy(mid_x, 44)
-    pdf.multi_cell(0, 7, safe_text(f"Primary: {primary}"))
-
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(70, 70, 70)
-    pdf.set_xy(mid_x, 58)
-    pdf.multi_cell(0, 5.8, safe_text(pu or "Use for headlines, key moments, and section titles."))
-
-    pdf.set_font("Helvetica", "B", 14)
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_xy(mid_x, 78)
-    pdf.multi_cell(0, 7, safe_text(f"Secondary: {secondary}"))
-
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(70, 70, 70)
-    pdf.set_xy(mid_x, 92)
-    pdf.multi_cell(0, 5.8, safe_text(su or "Use for body text, captions, and longer reading."))
-
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(70, 70, 70)
-    pdf.set_xy(mid_x, 116)
-    pdf.multi_cell(0, 5.8, safe_text(rat))
-
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.set_xy(mid_x, 146)
-    pdf.cell(0, 8, safe_text("Sample hierarchy"))
-
-    pdf.set_font("Helvetica", "B", 24)
-    pdf.set_xy(mid_x, 158)
-    pdf.multi_cell(0, 10, safe_text("Headline example"))
-
-    pdf.set_font("Helvetica", "", 12)
-    pdf.set_xy(mid_x, 182)
-    pdf.multi_cell(92, 6.5, safe_text("Body text example. Short sentences. Clear meaning. No fluff. This should feel like the brand."))
+        y -= row_h
+        if y < 50 * mm:
+            break
 
 
-def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+def draw_typography(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, typo: Dict[str, Any]):
+    draw_content_header(c, "Typography", accent_rgb, page_no, brand)
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.set_font("Helvetica", "B", 20)
-    pdf.set_xy(20, 18)
-    pdf.cell(0, 10, safe_text("Moodboard"))
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
 
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(20, 32, 86, 32)
+    primary = (typo.get("primary_font") or "").strip()
+    secondary = (typo.get("secondary_font") or "").strip()
+    primary_use = (typo.get("primary_use") or "").strip()
+    secondary_use = (typo.get("secondary_use") or "").strip()
+    rationale = (typo.get("rationale") or "").strip()
 
-    x0 = 20
-    y0 = 44
-    gap = 6
-    cols = 3
-    rows = 2
-    cell_w = (pdf.w - 40 - gap * (cols - 1)) / cols
-    cell_h = (pdf.h - y0 - 18 - gap * (rows - 1)) / rows
+    ptext(c, x, top, 210 * mm, 14 * mm, f"Primary: {primary}", ParagraphStyle("t1", parent=STYLE_BODY, fontName="Helvetica-Bold", fontSize=14, leading=18))
+    ptext(c, x, top - 14 * mm, 210 * mm, 20 * mm, primary_use, STYLE_MUTED)
 
-    idx = 0
-    for r in range(rows):
-        for c in range(cols):
-            if idx >= len(image_paths):
-                return
-            x = x0 + c * (cell_w + gap)
-            y = y0 + r * (cell_h + gap)
-            try:
-                pdf.image(image_paths[idx], x=x, y=y, w=cell_w, h=cell_h)
-            except Exception:
-                pass
-            idx += 1
+    ptext(c, x, top - 40 * mm, 210 * mm, 14 * mm, f"Secondary: {secondary}", ParagraphStyle("t2", parent=STYLE_BODY, fontName="Helvetica-Bold", fontSize=14, leading=18))
+    ptext(c, x, top - 54 * mm, 210 * mm, 20 * mm, secondary_use, STYLE_MUTED)
+
+    # Rationale box
+    box_y = top - 88 * mm
+    box_h = 48 * mm
+    c.setStrokeColor(rl_colors.HexColor("#E3E7EE"))
+    c.roundRect(x, box_y - box_h, 210 * mm, box_h, 6, fill=0, stroke=1)
+    ptext(c, x + 6 * mm, box_y - 8 * mm, 198 * mm, 14 * mm, "Why this pairing", STYLE_H2)
+    ptext(c, x + 6 * mm, box_y - 24 * mm, 198 * mm, box_h - 28 * mm, rationale, STYLE_BODY)
 
 
-def closing_page(pdf: BrandPDF, brand: str, headline: str, subhead: str, plate_path: str):
-    full_bleed_image(pdf, plate_path)
-    pdf.set_fill_color(10, 12, 16)
-    pdf.rect(14, 58, 190, 96, style="F")
-
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 40)
-    pdf.set_xy(22, 74)
-    pdf.multi_cell(180, 15, safe_text(brand))
-
-    pdf.set_font("Helvetica", "B", 22)
-    pdf.set_xy(22, 118)
-    pdf.multi_cell(170, 10, safe_text(headline))
-
-    pdf.set_font("Helvetica", "", 12)
-    pdf.set_xy(22, 146)
-    pdf.multi_cell(170, 6.6, safe_text(subhead))
+def draw_guardrails(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, guard: Dict[str, Any]):
+    draw_content_header(c, "Guardrails", accent_rgb, page_no, brand)
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+    items = (guard.get("failure_modes") or [])[:10]
+    draw_bullets(c, x, top, 210 * mm, 120 * mm, items, max_items=10)
 
 
-def make_cover_plate(primary, accent, background) -> str:
-    cover_plate = _make_plate_png_bytes(1900, 1100, primary, accent, background)
-    return _write_temp_png(cover_plate, key=f"cover_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
+def draw_usage(c: canvas.Canvas, brand: str, accent_rgb: Tuple[int, int, int], page_no: int, usage: Dict[str, Any]):
+    draw_content_header(c, "How to use this", accent_rgb, page_no, brand)
+    x = MARGIN_L
+    top = PAGE_H - MARGIN_T - 18 * mm
+    items = (usage.get("how_to_use") or [])[:10]
+    draw_bullets(c, x, top, 210 * mm, 120 * mm, items, max_items=10)
 
 
-def render_pdf(schema: dict, answers: dict) -> bytes:
-    meta = schema.get("meta", {}) or {}
-    colors = schema.get("colors", {}) or {}
-    hero = schema.get("hero", {}) or {}
-    typo = schema.get("typography", {}) or {}
+def draw_closing(c: canvas.Canvas, brand: str, img_path: str, accent_rgb: Tuple[int, int, int], page_no: int, headline: str, subhead: str):
+    draw_image_cover(c, img_path)
 
-    brand = (meta.get("brand_name", "") or "").strip() or (answers.get("brand_name", "") or "").strip() or "Brand"
+    panel_x = 16 * mm
+    panel_y = 34 * mm
+    panel_w = 220 * mm
+    panel_h = 78 * mm
 
-    primary = _hex_to_rgb(colors.get("primary_hex", ""), (18, 22, 30))
-    accent = _hex_to_rgb(colors.get("accent_hex", ""), (28, 125, 255))
-    background = _hex_to_rgb(colors.get("background_hex", ""), (245, 246, 248))
+    c.setFillColor(rl_colors.Color(0.04, 0.05, 0.07, alpha=0.92))
+    c.roundRect(panel_x, panel_y, panel_w, panel_h, 8, fill=1, stroke=0)
 
-    cover_plate_path = make_cover_plate(primary, accent, background)
+    c.setFillColor(rl_colors.white)
+    c.setFont("Helvetica-Bold", 30)
+    headline = clamp_str(headline, 80)
+    c.drawString(panel_x + 10 * mm, panel_y + panel_h - 26 * mm, headline)
 
-    pdf = BrandPDF(orientation="L", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=14)
-    pdf._brand_name = brand
+    ptext(c, panel_x + 10 * mm, panel_y + 22 * mm, panel_w - 20 * mm, 22 * mm, subhead, ParagraphStyle(
+        "cs", parent=STYLE_MUTED, fontSize=13, leading=17, textColor=rl_colors.white
+    ))
 
-    seed = int(time.time_ns() & 0xFFFFFFFF)
-    theme = pick_photo_theme(answers, schema)
-    photos = get_curated_images(theme, answers, schema, count=10, seed=seed)
+    draw_page_number(c, brand, page_no)
 
-    hero_photo = photos[0] if len(photos) > 0 else None
-    intro_photo = photos[1] if len(photos) > 1 else None
-    pos_photo = photos[2] if len(photos) > 2 else hero_photo
-    msg_photo = photos[3] if len(photos) > 3 else hero_photo
-    vis_photo = photos[4] if len(photos) > 4 else hero_photo
-    mood = photos[4:10] if len(photos) >= 10 else photos[:6]
 
-    deck_sub = (hero.get("deck_subtitle", "") or "").strip()
-    if not deck_sub:
-        deck_sub = "Brand system: A practical guide to brand consistency"
+def build_pdf_bytes(schema: Dict[str, Any], run_seed: int) -> bytes:
+    meta = schema.get("meta") or {}
+    brand = (meta.get("brand_name") or "").strip() or "Brand"
+    colors_obj = schema.get("colors") or {}
+    typo = schema.get("typography") or {}
+    hero = schema.get("hero") or {}
 
-    cover_page(pdf, brand=brand, subtitle=deck_sub, photo_path=hero_photo, plate_path=cover_plate_path)
+    primary_rgb = hex_to_rgb(colors_obj.get("primary_hex") or "", (26, 26, 26))
+    accent_rgb = hex_to_rgb(colors_obj.get("accent_hex") or "", (110, 140, 130))
+    neutral_rgb = hex_to_rgb(colors_obj.get("neutral_hex") or "", (245, 245, 240))
+    background_rgb = hex_to_rgb(colors_obj.get("background_hex") or "", (232, 232, 227))
 
-    intro_spread(pdf, brand=brand, date_utc=utc_date_str(), image_path=intro_photo, accent=accent)
+    colors_rgb = {
+        "primary": primary_rgb,
+        "accent": accent_rgb,
+        "neutral": neutral_rgb,
+        "background": background_rgb,
+    }
 
-    contents_page(pdf, accent=accent)
+    curated = generate_curated_images(run_seed, colors_rgb)
+    img_paths = {k: pil_to_temp_png(v) for k, v in curated.items()}
 
-    section_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", primary)
-    content_heading(pdf, "Executive summary", accent)
-    decisions = ((schema.get("executive_summary", {}) or {}).get("decisions", []) or [])
-    bullet_list(pdf, [d for d in decisions if (d or "").strip()], max_items=8, width=200)
+    deck = (hero.get("deck_subtitle") or "").strip() or "Brand system. Practical. Consistent. Controlled."
+    headline = (hero.get("headline") or "").strip() or "A brand system you can actually follow"
+    subhead = (hero.get("subhead") or "").strip() or "Consistency is not a feeling. It is a set of rules."
 
-    if pos_photo:
-        photo_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", pos_photo, accent)
-    else:
-        section_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", background)
-    content_heading(pdf, "Positioning", accent)
-    pos = schema.get("positioning", {}) or {}
-    body_paras(pdf, (pos.get("positioning_statement", "") or "").strip(), width=200)
+    from io import BytesIO
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
 
-    left = []
-    cat = (pos.get("category", "") or "").strip()
-    if cat:
-        left.append(f"Category: {cat}")
-    rc = (pos.get("anti_position", "") or "").strip()
-    right = [rc] if rc else []
-    two_col_lists(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, generic."], accent)
+    # Page 1: Cover, no page number
+    draw_cover(c, brand, deck, img_paths["hero"], primary_rgb)
+    c.showPage()
 
-    section_opener(pdf, "Audience", "One real person. One real tension.", background)
-    content_heading(pdf, "Audience and insight", accent)
-    aud = schema.get("audience", {}) or {}
-    bullet_list(pdf, [
-        (aud.get("core_customer", "") or "").strip(),
-        (aud.get("core_tension", "") or "").strip(),
-        (aud.get("primary_objection", "") or "").strip(),
-        (aud.get("trust_trigger", "") or "").strip(),
-    ], max_items=8, width=200)
+    # Page numbering starts at 2
+    page_no = 2
 
-    if msg_photo:
-        photo_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", msg_photo, accent)
-    else:
-        section_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", background)
-    content_heading(pdf, "Messaging", accent)
-    msg = schema.get("messaging", {}) or {}
-    body_paras(pdf, (msg.get("core_message", "") or "").strip(), width=200)
+    # How to use
+    draw_how_to_use(c, brand, accent_rgb, page_no)
+    c.showPage()
+    page_no += 1
 
-    kms = (msg.get("key_messages", []) or [])[:3]
-    if kms:
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.set_text_color(18, 22, 30)
-        pdf.cell(0, 7, safe_text("Key messages"), ln=1)
-        pdf.ln(2)
-        for km in kms:
-            m = safe_text((km.get("message", "") or "").strip())
-            p = safe_text((km.get("proof", "") or "").strip())
-            if m:
-                pdf.set_font("Helvetica", "B", 11)
-                pdf.set_text_color(18, 22, 30)
-                pdf.multi_cell(200, 6.8, m)
-            if p:
-                pdf.set_font("Helvetica", "", 10)
-                pdf.set_text_color(70, 70, 70)
-                pdf.multi_cell(200, 6.2, p)
-            pdf.ln(2)
+    # Executive summary
+    decisions = ((schema.get("executive_summary") or {}).get("decisions") or [])
+    draw_exec_summary(c, brand, accent_rgb, page_no, decisions)
+    c.showPage()
+    page_no += 1
 
-    section_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", primary)
-    content_heading(pdf, "Voice rules", accent)
-    voice = schema.get("voice", {}) or {}
-    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], max_items=7, width=200)
-    two_col_lists(
-        pdf,
-        "Do say",
-        [x for x in (voice.get("do_say", []) or []) if (x or "").strip()],
-        "Do not say",
-        [x for x in (voice.get("do_not_say", []) or []) if (x or "").strip()],
-        accent
-    )
+    # Positioning
+    draw_positioning(c, brand, accent_rgb, page_no, schema.get("positioning") or {})
+    c.showPage()
+    page_no += 1
 
-    ex = voice.get("examples", {}) or {}
-    before = (ex.get("before", "") or "").strip()
-    after = (ex.get("after", "") or "").strip()
+    # Audience
+    draw_audience(c, brand, accent_rgb, page_no, schema.get("audience") or {})
+    c.showPage()
+    page_no += 1
+
+    # Messaging
+    draw_messaging(c, brand, accent_rgb, page_no, schema.get("messaging") or {})
+    c.showPage()
+    page_no += 1
+
+    # Voice rules
+    voice = schema.get("voice") or {}
+    draw_voice_rules(c, brand, accent_rgb, page_no, voice)
+    c.showPage()
+    page_no += 1
+
+    # Voice example
+    ex = (voice.get("examples") or {})
+    before = (ex.get("before") or "").strip()
+    after = (ex.get("after") or "").strip()
     if before and after:
-        content_heading(pdf, "Voice example", accent)
-        two_col_lists(pdf, "Before", [before], "After", [after], accent)
+        draw_voice_example(c, brand, accent_rgb, page_no, before, after)
+        c.showPage()
+        page_no += 1
 
-    if vis_photo:
-        photo_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", vis_photo, accent)
-    else:
-        section_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", background)
+    # Visual direction
+    draw_visual_direction(c, brand, accent_rgb, page_no, schema.get("visual_direction") or {}, img_paths)
+    c.showPage()
+    page_no += 1
 
-    moodboard_page(pdf, mood, accent)
+    # Color palette
+    draw_color_palette(c, brand, accent_rgb, page_no, colors_obj)
+    c.showPage()
+    page_no += 1
 
-    content_heading(pdf, "Visual direction", accent)
-    vis = schema.get("visual_direction", {}) or {}
-    body_paras(pdf, (vis.get("intent", "") or "").strip(), width=200)
-    two_col_lists(
-        pdf,
-        "Feels like",
-        [x for x in (vis.get("feels_like", []) or []) if (x or "").strip()],
-        "Never feels like",
-        [x for x in (vis.get("never_feels_like", []) or []) if (x or "").strip()],
-        accent
-    )
+    # Typography
+    draw_typography(c, brand, accent_rgb, page_no, typo)
+    c.showPage()
+    page_no += 1
 
-    palette_and_type_spread(pdf, colors, typo, accent)
+    # Guardrails
+    draw_guardrails(c, brand, accent_rgb, page_no, schema.get("guardrails") or {})
+    c.showPage()
+    page_no += 1
 
-    section_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", primary)
-    content_heading(pdf, "Guardrails", accent)
-    guard = schema.get("guardrails", {}) or {}
-    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], max_items=10, width=200)
+    # Usage page from schema, separate from the early how-to page
+    draw_usage(c, brand, accent_rgb, page_no, schema.get("usage") or {})
+    c.showPage()
+    page_no += 1
 
-    section_opener(pdf, "How to use this", "Open this when the team starts to drift.", background)
-    content_heading(pdf, "How to use this", accent)
-    usage = schema.get("usage", {}) or {}
-    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], max_items=10, width=200)
+    # Closing
+    draw_closing(c, brand, img_paths["support_2"], accent_rgb, page_no, headline, subhead)
+    c.showPage()
 
-    headline = safe_text((hero.get("headline", "") or "").strip()) or "A brand system you can actually follow"
-    subhead = safe_text((hero.get("subhead", "") or "").strip()) or "Consistency is not a feeling. It is a set of rules."
-    closing_page(pdf, brand=brand, headline=headline, subhead=subhead, plate_path=cover_plate_path)
-
-    return pdf.output(dest="S").encode("latin-1", "replace")
+    c.save()
+    return buf.getvalue()
 
 
-# =========================
-# UI helpers
-# =========================
-def render_progress(step_index: int, steps: list[dict]):
-    total = len([s for s in steps if s["type"] == "question"])
-    seen = 0
-    for i in range(step_index + 1):
-        if steps[i]["type"] == "question":
-            seen += 1
-    current_q = max(1, seen) if total else 0
-    st.progress(min(max((step_index + 1) / max(len(steps), 1), 0.0), 1.0))
-    st.caption(f"Question {current_q} of {total}")
+# -------------------------
+# UI
+# -------------------------
+@dataclass
+class Field:
+    key: str
+    label: str
+    kind: str
+    required: bool = True
+    options: Optional[List[str]] = None
+    help: str = ""
 
 
-def render_question(q: Question):
-    key = f"ans_{q.key}"
-    current = st.session_state.answers.get(q.key)
-
-    if q.qtype == "text":
-        val = st.text_input(q.title, value=current or "", placeholder=q.placeholder, key=key)
-        st.session_state.answers[q.key] = (val or "").strip()
-
-    elif q.qtype == "textarea":
-        val = st.text_area(q.title, value=current or "", placeholder=q.placeholder, height=160, key=key)
-        st.session_state.answers[q.key] = (val or "").strip()
-
-    elif q.qtype == "cards":
-        opts = q.options or []
-        idx = opts.index(current) if current in opts else 0
-        val = st.radio(q.title, options=opts, index=idx, key=key)
-        st.session_state.answers[q.key] = val
-        if val == "Other":
-            other = st.text_input("Other", value=st.session_state.answers.get(q.key + "_other", ""), key=key + "_other")
-            st.session_state.answers[q.key + "_other"] = (other or "").strip()
-
-    elif q.qtype == "checks":
-        opts = q.options or []
-        cur_list = current if isinstance(current, list) else []
-        chosen = []
-        st.write(q.title)
-        for opt in opts:
-            if st.checkbox(opt, value=(opt in cur_list), key=f"{key}_{opt}"):
-                chosen.append(opt)
-        st.session_state.answers[q.key] = chosen
-
-    else:
-        st.session_state.answers[q.key] = current
+FIELDS = [
+    Field("brand_name", "Brand name", "text", True, help="Name as it appears publicly."),
+    Field("industry", "Industry", "text", True, help="Example: advisory, fintech, architecture, wellness."),
+    Field("offer", "What do you sell", "textarea", True, help="One clear description of your offer."),
+    Field("audience", "Core audience", "textarea", True, help="Who pays you, and why."),
+    Field("first_impression", "First impression", "select", True, options=["Controlled", "Powerful", "Warm", "Curious", "Minimal"]),
+    Field("voice_energy", "Voice energy", "select", True, options=["Calm", "Bold", "Warm", "Sharp"]),
+    Field("brand_place", "Place or context", "text", False, help="Optional. Example: clinic, studio, lab, boardroom."),
+    Field("avoid_vibes", "Avoid vibes", "multiselect", False, options=["Startup hype", "Luxury cliche", "Lifestyle fluff", "Generic corporate", "Overly playful"]),
+    Field("competitor_1", "Competitor 1", "text", False),
+    Field("competitor_2", "Competitor 2", "text", False),
+    Field("must_keep", "Must keep", "textarea", False, help="Any non negotiables, words, claims, constraints."),
+]
 
 
-def validate_step(step: dict) -> tuple[bool, str]:
-    if step["type"] != "question":
-        return True, ""
-    q = get_question(step["qid"])
-    val = st.session_state.answers.get(q.key)
+def get_answers_from_form() -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    for f in FIELDS:
+        if f.kind == "text":
+            out[f.key] = (st.session_state.get(f.key) or "").strip()
+        elif f.kind == "textarea":
+            out[f.key] = (st.session_state.get(f.key) or "").strip()
+        elif f.kind == "select":
+            out[f.key] = st.session_state.get(f.key)
+        elif f.kind == "multiselect":
+            out[f.key] = st.session_state.get(f.key) or []
+    return out
 
-    if not q.required:
-        return True, ""
 
-    if q.key == "brand_name":
-        if not (val or "").strip():
-            return False, "Brand name is required."
-        return True, ""
-
-    if q.qtype == "checks":
-        if not isinstance(val, list) or len(val) == 0:
-            return False, "Select at least one option."
-        return True, ""
-
-    if not val or (isinstance(val, str) and not val.strip()):
-        return False, "Write a short answer to continue."
+def validate_answers(a: Dict[str, Any]) -> Tuple[bool, str]:
+    for f in FIELDS:
+        if not f.required:
+            continue
+        v = a.get(f.key)
+        if f.kind in ["text", "textarea"] and not (v or "").strip():
+            return False, f"{f.label} is required."
+        if f.kind == "select" and not v:
+            return False, f"{f.label} is required."
     return True, ""
 
 
-# =========================
-# Views
-# =========================
-def landing_view():
-    st.markdown('<div class="eyebrow">Brand system generator</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle">Build a brand that stays consistent when you are not in the room</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div class="heroSub">A guided brand interview that turns strategy, voice, and visual direction into a premium landscape PDF deck with real design rhythm.</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        """
-        <div class="pills">
-          <div class="pill">Landscape deck</div>
-          <div class="pill">Curated imagery</div>
-          <div class="pill">Color and typography</div>
-          <div class="pill">Rules, not fluff</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
-
-    col1, col2 = st.columns([3, 2], gap="large")
-    with col1:
-        st.subheader("Why a brand bible matters")
-        st.write("Most brands fail because nothing is defined.")
-        st.write("A brand bible is not a document. It is a decision system.")
-        st.write("With a real system, teams decide faster, argue less, and stay consistent without trying.")
-
-    with col2:
-        st.subheader("What you get")
-        st.write("Positioning and category clarity")
-        st.write("Messaging system with proof points")
-        st.write("Voice rules with examples")
-        st.write("Visual direction and guardrails")
-        st.caption("Includes 5 generations per purchase concept.")
-
-    st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-    if st.button("Start brand interview"):
-        st.session_state.step_index = 0
-        go("wizard")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if not st.session_state.api_key:
-        st.info("Developer note: Set GEMINI_API_KEY in secrets.toml. This app also needs requests for curated imagery.")
-        with st.expander("Developer settings"):
-            st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
-
-
-def wizard_view():
-    steps = wizard_steps()
-    st.session_state.step_index = max(0, min(st.session_state.step_index, len(steps) - 1))
-    step = steps[st.session_state.step_index]
-
-    render_progress(st.session_state.step_index, steps)
-    st.write("")
-
-    if step["type"] == "section":
-        sec = get_section(step["section_id"])
-        st.subheader(sec.title)
-        st.caption(sec.line)
-    else:
-        q = get_question(step["qid"])
-        st.subheader(q.title)
-        st.caption(q.micro)
-        render_question(q)
-
-    st.write("")
-    left, right = st.columns([1, 1])
-    with left:
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            if st.session_state.step_index > 0:
-                st.session_state.step_index -= 1
-                st.rerun()
-            else:
-                go("landing")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with right:
-        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-        label = "Continue" if step["type"] == "section" else "Next"
-        if st.button(label):
-            ok, msg = validate_step(step)
-            if not ok:
-                st.error(msg)
-            else:
-                if st.session_state.step_index >= len(steps) - 1:
-                    go("confirm")
-                else:
-                    st.session_state.step_index += 1
-                    st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-def confirm_view():
-    st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Ready to generate the deck</div>', unsafe_allow_html=True)
-
-    remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
-    st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
-
-    with st.expander("Review your inputs", expanded=False):
-        for q in QUESTIONS:
-            ans = st.session_state.answers.get(q.key)
-            if ans is None or ans == "" or ans == []:
-                continue
-            st.markdown(f"**{q.title}**")
-            if isinstance(ans, list):
-                st.write(", ".join(ans))
-            else:
-                st.write(ans)
-            st.markdown("")
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back to interview"):
-            go("wizard")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-        if st.button("Generate brand bible", disabled=(remaining <= 0)):
-            go("generate")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-def generate_view():
-    st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your brand deck</div>', unsafe_allow_html=True)
-    st.markdown('<hr class="soft" />', unsafe_allow_html=True)
-
-    api_key = (st.session_state.api_key or "").strip()
-    if not api_key:
-        st.error("Missing API key.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("landing")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    remaining = st.session_state.gen_max - st.session_state.gen_used
-    if remaining <= 0:
-        st.error("No generations remaining.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("done" if st.session_state.pdf_bytes else "confirm")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    genai.configure(api_key=api_key)
-
-    brand = (st.session_state.answers.get("brand_name", "") or "").strip()
-    if not brand:
-        st.error("Brand name is required.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("wizard")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
-    stage = st.empty()
-
-    try:
-        with st.spinner("Working..."):
-            stage.write("Defining strategy")
-            time.sleep(0.06)
-            schema, model_used = generate_schema(prompt, timeout_s=35)
-
-            stage.write("Building deck design")
-            time.sleep(0.06)
-            pdf_bytes = render_pdf(schema, st.session_state.answers)
-
-        st.session_state.last_json = schema
-        st.session_state.model_used = model_used
-        st.session_state.pdf_bytes = pdf_bytes
-        st.session_state.gen_used += 1
-        go("done")
-
-    except Exception as e:
-        st.session_state.error = str(e)
-        st.error(f"Generation failed: {st.session_state.error}")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("confirm")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-def done_view():
-    st.markdown('<div class="eyebrow">Ready</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your brand deck</div>', unsafe_allow_html=True)
-
-    remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
-    st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
-
-    if not st.session_state.pdf_bytes:
-        st.error("No PDF available.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("confirm")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    brand = (st.session_state.answers.get("brand_name", "") or "").strip() or "Brand"
-    filename = f"{brand}_Brand_Bible_v{st.session_state.gen_used}.pdf"
-
-    st.download_button(
-        "Download PDF",
-        data=st.session_state.pdf_bytes,
-        file_name=filename,
-        mime="application/pdf",
-        use_container_width=True,
-    )
-
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Start new brand"):
-            reset_app(keep_api_key=True)
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with col2:
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Generate again", disabled=(remaining <= 0)):
-            go("generate")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with st.expander("Preview JSON", expanded=False):
-        st.json(st.session_state.last_json or {})
-
-    if st.session_state.model_used:
-        st.caption(f"Model used: {st.session_state.model_used}")
-
-
 def main():
-    ss_init()
-    inject_css()
+    st.title("Brand Bible Generator")
 
-    view = st.session_state.view
-    if view == "landing":
-        landing_view()
-    elif view == "wizard":
-        wizard_view()
-    elif view == "confirm":
-        confirm_view()
-    elif view == "generate":
-        generate_view()
-    else:
-        done_view()
+    with st.sidebar:
+        st.subheader("Settings")
+        api_key = st.text_input("Gemini API key", type="password", value=(st.secrets.get("GEMINI_API_KEY", "") or "").strip())
+        st.caption("If empty, paste a valid key here.")
+
+        version_str = st.text_input("Version label", value="v1")
+        st.caption("Any string, used in the document metadata.")
+        st.divider()
+        st.caption("Output is different each time because a run seed is injected into the intake.")
+
+    # Intake form
+    st.subheader("Intake")
+    c1, c2 = st.columns(2)
+
+    for i, f in enumerate(FIELDS):
+        col = c1 if i % 2 == 0 else c2
+        with col:
+            if f.kind == "text":
+                st.text_input(f.label, key=f.key, help=f.help)
+            elif f.kind == "textarea":
+                st.text_area(f.label, key=f.key, height=110, help=f.help)
+            elif f.kind == "select":
+                st.selectbox(f.label, options=f.options or [], key=f.key, help=f.help)
+            elif f.kind == "multiselect":
+                st.multiselect(f.label, options=f.options or [], key=f.key, help=f.help)
+
+    st.divider()
+    generate = st.button("Generate brand bible PDF", type="primary")
+
+    if not generate:
+        return
+
+    if not api_key:
+        st.error("API key is required.")
+        return
+
+    answers = get_answers_from_form()
+    ok, msg = validate_answers(answers)
+    if not ok:
+        st.error(msg)
+        return
+
+    # Run seed makes each generation different, but coherent within the document
+    # It also forces the model decisions to change because it is included in the intake JSON
+    run_seed = random.SystemRandom().randint(1, 2_000_000_000)
+    answers["_run_seed"] = run_seed
+    answers["_run_utc"] = utc_date_str()
+    answers["_run_note"] = "Use this seed to vary decisions while staying consistent inside the document."
+
+    with st.status("Generating schema with Gemini", expanded=False) as status:
+        try:
+            schema, model_used = generate_schema(api_key, answers, version_str, timeout_s=40)
+            status.update(label=f"Schema ready, model: {model_used}", state="complete")
+        except Exception as e:
+            status.update(label="Generation failed", state="error")
+            st.error(str(e))
+            return
+
+    with st.status("Building PDF", expanded=False) as status:
+        try:
+            pdf_bytes = build_pdf_bytes(schema, run_seed=run_seed)
+            status.update(label="PDF ready", state="complete")
+        except Exception as e:
+            status.update(label="PDF build failed", state="error")
+            st.error(str(e))
+            return
+
+    brand_name = (schema.get("meta") or {}).get("brand_name") or (answers.get("brand_name") or "brand")
+    safe_name = re.sub(r"[^a-zA-Z0-9._ -]+", "", brand_name).strip() or "brand"
+    filename = f"{safe_name}_brand_bible_{utc_date_str()}.pdf"
+
+    st.success("Done.")
+    st.download_button("Download PDF", data=pdf_bytes, file_name=filename, mime="application/pdf")
+
+    with st.expander("Debug: schema JSON"):
+        st.json(schema)
 
 
 if __name__ == "__main__":
