@@ -25,6 +25,14 @@ except Exception:
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
 
 
+from pathlib import Path
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
+
+
 # =========================
 # Session state
 # =========================
@@ -451,7 +459,9 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
                 resp = fut.result(timeout=timeout_s)
             raw = (getattr(resp, "text", "") or "").strip()
             data = json.loads(extract_json_object(raw))
-            data = sanitize_obj(data)
+            # Keep unicode intact. We will only sanitize later if we are forced into core fonts.
+            data = data
+
             required = ["meta", "colors", "typography", "hero", "executive_summary", "positioning",
                         "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]
             for k in required:
@@ -717,6 +727,95 @@ def _write_temp_png(png_bytes: bytes, key: str) -> str:
     st.session_state.plate_paths[key] = f.name
     return f.name
 
+# =========================
+# Layout system (US Letter landscape)
+# =========================
+IN_TO_MM = 25.4
+
+def inch(x: float) -> float:
+    return x * IN_TO_MM
+
+class Layout:
+    """
+    Premium minimalist studio deck layout contract.
+    All positioning should be derived from this object.
+    """
+    def __init__(self):
+        # US Letter landscape in mm
+        self.page_w = inch(11.0)
+        self.page_h = inch(8.5)
+
+        # Margins in inches, converted to mm
+        self.margin_l = inch(0.90)
+        self.margin_r = inch(0.90)
+        self.margin_t = inch(0.75)
+        self.margin_b = inch(0.75)
+
+        # Grid
+        self.cols = 12
+        self.gutter = inch(0.20)
+
+        # Baseline rhythm
+        self.base = inch(0.15)
+
+        # Derived widths
+        self.live_w = self.page_w - self.margin_l - self.margin_r
+        self.live_h = self.page_h - self.margin_t - self.margin_b
+        self.col_w = (self.live_w - (self.cols - 1) * self.gutter) / self.cols
+
+    def x(self, col_index: int) -> float:
+        # 0-based column index
+        return self.margin_l + col_index * (self.col_w + self.gutter)
+
+    def w(self, col_span: int) -> float:
+        # number of columns to span
+        if col_span <= 0:
+            return 0.0
+        return col_span * self.col_w + (col_span - 1) * self.gutter
+
+    def snap_y(self, y: float) -> float:
+        # snap to baseline rhythm
+        if self.base <= 0:
+            return y
+        return round(y / self.base) * self.base
+
+# =========================
+# Fonts (embedded TTF)
+# =========================
+FONT_DIR = Path("assets") / "fonts"
+
+class FontPack:
+    def __init__(self):
+        self.loaded = False
+        self.head = "Head"
+        self.body = "Body"
+
+def register_fonts(pdf: FPDF) -> FontPack:
+    pack = FontPack()
+    try:
+        # Head font (Sora or Space Grotesk)
+        head_b = FONT_DIR / "Sora-Bold.ttf"
+        head_sb = FONT_DIR / "Sora-SemiBold.ttf"
+
+        # Body font (Inter)
+        body_r = FONT_DIR / "Inter-Regular.ttf"
+        body_m = FONT_DIR / "Inter-Medium.ttf"
+        body_sb = FONT_DIR / "Inter-SemiBold.ttf"
+
+        if not (head_b.exists() and head_sb.exists() and body_r.exists() and body_m.exists() and body_sb.exists()):
+            return pack
+
+        pdf.add_font(pack.head, "", str(head_sb))
+        pdf.add_font(pack.head, "B", str(head_b))
+
+        pdf.add_font(pack.body, "", str(body_r))
+        pdf.add_font(pack.body, "B", str(body_sb))
+        pdf.add_font(pack.body, "I", str(body_r))
+
+        pack.loaded = True
+        return pack
+    except Exception:
+        return pack
 
 # =========================
 # PDF
@@ -726,26 +825,12 @@ def safe_text(s: Any) -> str:
         return ""
     s = str(s)
 
-    # quotes
+    # Normalize quotes and ellipsis only, keep punctuation intact
     s = s.replace("\u2018", "'").replace("\u2019", "'")
     s = s.replace("\u201c", '"').replace("\u201d", '"')
-
-    # ellipsis
     s = s.replace("\u2026", "...")
 
-    # bullets og svipað
-    s = s.replace("\u2022", "*")   # bullet
-    s = s.replace("\u00B7", "*")   # middle dot
-    s = s.replace("\u25CF", "*")   # black circle
-    s = s.replace("\u25AA", "*")   # small square
-    s = s.replace("\u2023", "*")   # triangular bullet
-
-    # en dash og em dash
-    s = s.replace("\u2013", " ")
-    s = s.replace("\u2014", " ")
-
-    # force latin 1
-    return s.encode("latin-1", "replace").decode("latin-1")
+    return s
 
 def sanitize_text(s: Any) -> str:
     # tekur hvað sem er og skilar öruggum latin-1 streng
@@ -780,16 +865,34 @@ def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 class BrandPDF(FPDF):
-    def _textstring(self, s):
-        return super()._textstring(safe_text(s))
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self._brand_name = ""
+        self.layout = Layout()
+        self.fonts = FontPack()
+
+        # Default text colors (tuned for premium minimal)
+        self.c_text = (18, 22, 30)
+        self.c_muted = (96, 102, 112)
+        self.c_rule = (224, 228, 234)
 
     def footer(self):
-        self.set_y(-12)
-        self.set_font("Helvetica", "", 8)
-        self.set_text_color(140, 140, 140)
-        self.cell(0, 10, safe_text(self._brand_name or ""), align="L")
-        self.set_x(-22)
-        self.cell(12, 10, str(self.page_no()), align="R")
+        L = self.layout
+        self.set_y(-L.margin_b + inch(0.18))
+
+        if self.fonts.loaded:
+            self.set_font(self.fonts.body, "", 8)
+        else:
+            self.set_font("Helvetica", "", 8)
+
+        self.set_text_color(*self.c_muted)
+        self.set_x(L.margin_l)
+        self.cell(0, inch(0.20), self._brand_name, align="L")
+
+        # Page number right aligned in live area
+        self.set_x(L.page_w - L.margin_r - inch(0.30))
+        self.cell(inch(0.30), inch(0.20), str(self.page_no()), align="R")
 
 
 def full_bleed_color(pdf: BrandPDF, rgb: tuple[int, int, int]):
@@ -1192,9 +1295,13 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
 
     cover_plate_path = make_cover_plate(primary, accent, background)
 
-    pdf = BrandPDF(orientation="L", unit="mm", format="A4")
-    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf = BrandPDF(orientation="L", unit="mm", format=(Layout().page_w, Layout().page_h))
+    pdf.set_auto_page_break(auto=True, margin=pdf.layout.margin_b)
+
+    # Embed fonts if available
+    pdf.fonts = register_fonts(pdf)
     pdf._brand_name = brand
+
 
     seed = int(time.time_ns() & 0xFFFFFFFF)
     theme = pick_photo_theme(answers, schema)
@@ -1330,8 +1437,13 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     subhead = safe_text((hero.get("subhead", "") or "").strip()) or "Consistency is not a feeling. It is a set of rules."
     closing_page(pdf, brand=brand, headline=headline, subhead=subhead, plate_path=cover_plate_path)
 
-    return pdf.output(dest="S").encode("latin-1", "replace")
+    out = pdf.output(dest="S")
+    if isinstance(out, (bytes, bytearray)):
+        return bytes(out)
+    return str(out).encode("latin-1", "replace")
 
+    if not pdf.fonts.loaded:
+    schema = sanitize_obj(schema)
 
 # =========================
 # UI helpers
