@@ -17,9 +17,9 @@ import google.generativeai as genai
 from fpdf import FPDF
 
 try:
-import requests
-except Exception:
-requests = None
+    import requests
+except ImportError:
+    requests = None
 
 
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
