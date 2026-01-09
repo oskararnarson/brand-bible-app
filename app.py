@@ -721,13 +721,30 @@ def _write_temp_png(png_bytes: bytes, key: str) -> str:
 # =========================
 # PDF
 # =========================
-def safe_text(s: str) -> str:
-    if not s:
+def safe_text(s: Any) -> str:
+    if s is None:
         return ""
+    s = str(s)
+
+    # quotes
     s = s.replace("\u2018", "'").replace("\u2019", "'")
     s = s.replace("\u201c", '"').replace("\u201d", '"')
+
+    # ellipsis
     s = s.replace("\u2026", "...")
-    s = s.replace("\u2022", "•")
+
+    # bullets og svipað
+    s = s.replace("\u2022", "*")   # bullet
+    s = s.replace("\u00B7", "*")   # middle dot
+    s = s.replace("\u25CF", "*")   # black circle
+    s = s.replace("\u25AA", "*")   # small square
+    s = s.replace("\u2023", "*")   # triangular bullet
+
+    # en dash og em dash
+    s = s.replace("\u2013", " ")
+    s = s.replace("\u2014", " ")
+
+    # force latin 1
     return s.encode("latin-1", "replace").decode("latin-1")
 
 def sanitize_text(s: Any) -> str:
@@ -763,13 +780,14 @@ def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
 
 
 class BrandPDF(FPDF):
+    def _textstring(self, s):
+        return super()._textstring(safe_text(s))
+
     def footer(self):
-        if self.page_no() == 1:
-            return
         self.set_y(-12)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(140, 140, 140)
-        self.cell(0, 10, safe_text(getattr(self, "_brand_name", "") or ""), align="L")
+        self.cell(0, 10, safe_text(self._brand_name or ""), align="L")
         self.set_x(-22)
         self.cell(12, 10, str(self.page_no()), align="R")
 
@@ -963,7 +981,7 @@ def bullet_list(pdf: BrandPDF, items: list[str], max_items: int = 8, width: floa
         s = safe_text((it or "").strip())
         if not s:
             continue
-        pdf.multi_cell(width, 6.8, f"• {s}")
+        pdf.multi_cell(0, 6.8, safe_text(f"* {s}"))
         n += 1
     pdf.ln(1.5)
 
@@ -992,7 +1010,7 @@ def two_col_lists(pdf: BrandPDF, left_title: str, left_items: list[str], right_t
             if not s:
                 continue
             pdf.set_x(x)
-            pdf.multi_cell(col_w, 6.6, f"• {s}")
+            pdf.multi_cell(0, 6.8, safe_text(f"* {s}"))
             pdf.ln(1)
         return pdf.get_y()
 
