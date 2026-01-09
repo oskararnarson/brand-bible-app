@@ -451,6 +451,7 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
                 resp = fut.result(timeout=timeout_s)
             raw = (getattr(resp, "text", "") or "").strip()
             data = json.loads(extract_json_object(raw))
+            data = sanitize_obj(data)
             required = ["meta", "colors", "typography", "hero", "executive_summary", "positioning",
                         "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]
             for k in required:
@@ -728,6 +729,33 @@ def safe_text(s: str) -> str:
     s = s.replace("\u2026", "...")
     s = s.replace("\u2022", "•")
     return s.encode("latin-1", "replace").decode("latin-1")
+
+def sanitize_text(s: Any) -> str:
+    # tekur hvað sem er og skilar öruggum latin-1 streng
+    if s is None:
+        return ""
+    s = str(s)
+
+    # Algengir vandræðastafir
+    s = s.replace("\u2018", "'").replace("\u2019", "'")
+    s = s.replace("\u201c", '"').replace("\u201d", '"')
+    s = s.replace("\u2026", "...")
+    s = s.replace("\u2022", "-")   # bullet
+    s = s.replace("\u00B7", "-")   # middle dot
+    s = s.replace("\u25CF", "-")   # black circle bullet
+    s = s.replace("\u25AA", "-")   # small square bullet
+
+    # Force latin-1 safe
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+def sanitize_obj(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: sanitize_obj(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_obj(v) for v in obj]
+    if isinstance(obj, str):
+        return sanitize_text(obj)
+    return obj
 
 
 def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
