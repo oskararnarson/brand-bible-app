@@ -1511,6 +1511,75 @@ def component_closing(pdf: BrandPDF, brand: str, headline: str, subhead: str, ph
     pdf.set_line_width(1.2)
     pdf.line(panel_x + inch(0.35), panel_y + panel_h - inch(0.55), panel_x + inch(2.35), panel_y + panel_h - inch(0.55))
 
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    length = struct.pack(">I", len(data))
+    crc = zlib.crc32(chunk_type)
+    crc = zlib.crc32(data, crc)
+    crc_bytes = struct.pack(">I", crc & 0xFFFFFFFF)
+    return length + chunk_type + data + crc_bytes
+
+
+def _make_plate_png_bytes(w: int, h: int, c1: tuple[int, int, int], c2: tuple[int, int, int], bg: tuple[int, int, int]) -> bytes:
+    seed = (c1[0] << 16) + (c1[1] << 8) + c1[2] + (c2[0] << 8) + c2[1] + (bg[2] << 4)
+    x = seed & 0xFFFFFFFF
+
+    def rnd() -> int:
+        nonlocal x
+        x = (1664525 * x + 1013904223) & 0xFFFFFFFF
+        return x
+
+    scanlines = bytearray()
+    for y in range(h):
+        scanlines.append(0)
+        t = y / max(h - 1, 1)
+        for px in range(w):
+            u = px / max(w - 1, 1)
+            k = (u * 0.62 + t * 0.38)
+            r = int(c1[0] * (1 - k) + c2[0] * k)
+            g = int(c1[1] * (1 - k) + c2[1] * k)
+            b = int(c1[2] * (1 - k) + c2[2] * k)
+
+            n = (rnd() >> 24) - 128
+            n = int(n * 0.10)
+
+            dx = (u - 0.5)
+            dy = (t - 0.5)
+            v = 1.0 - min(0.55, (dx * dx + dy * dy) * 1.25)
+
+            r = int((r + bg[0]) * 0.5 * v + r * 0.5)
+            g = int((g + bg[1]) * 0.5 * v + g * 0.5)
+            b = int((b + bg[2]) * 0.5 * v + b * 0.5)
+
+            r = max(0, min(255, r + n))
+            g = max(0, min(255, g + n))
+            b = max(0, min(255, b + n))
+
+            scanlines.extend((r, g, b))
+
+    raw = bytes(scanlines)
+    compressed = zlib.compress(raw, level=7)
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return signature + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", compressed) + _png_chunk(b"IEND", b"")
+
+
+def _write_temp_png(png_bytes: bytes, key: str) -> str:
+    if key in st.session_state.plate_paths and os.path.exists(st.session_state.plate_paths[key]):
+        return st.session_state.plate_paths[key]
+    f = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{key}.png")
+    f.write(png_bytes)
+    f.flush()
+    f.close()
+    st.session_state.plate_paths[key] = f.name
+    return f.name
+
+
+def make_cover_plate(primary: tuple[int, int, int], accent: tuple[int, int, int], background: tuple[int, int, int]) -> str:
+    png = _make_plate_png_bytes(1900, 1100, primary, accent, background)
+    key = f"cover_{primary[0]}_{primary[1]}_{primary[2]}_{accent[0]}_{accent[1]}_{accent[2]}_{background[0]}_{background[1]}_{background[2]}"
+    return _write_temp_png(png, key=key)
+
 
 def render_pdf(schema: dict, answers: dict) -> bytes:
     meta = schema.get("meta", {}) or {}
