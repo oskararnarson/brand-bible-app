@@ -1004,30 +1004,45 @@ class BrandPDF(FPDF):
         self._latin_only = False
 
     def set_brand_fonts(self):
+        # Loads fonts (if present) and sets latin-only fallback flag
         self.fontpack = register_fonts(self)
         self._latin_only = (not self.fontpack.loaded)
 
     def f_head(self, style: str, size: float):
+        """
+        style: "" | "B"
+        """
+        st = style or ""
         if self.fontpack.loaded:
-            self.set_font(self.fontpack.head, style, size)
+            self.set_font(self.fontpack.head, st, size)
         else:
-            self.set_font("Helvetica", style, size)
+            # Helvetica supports "" and "B"
+            self.set_font("Helvetica", st, size)
 
-    def f_body(self, style: str, size: float):
+    def f_body(self, weight: str, size: float):
+        """
+        weight: "R" | "M" | "B"
+        Uses BodyM family for Medium weight (never passes illegal style).
+        """
+        w = (weight or "R").upper()
+
         if self.fontpack.loaded:
-            fam = self.fontpack.body
-            if style == "M":
-                self.set_font(fam, "M", size)
+            if w == "M":
+                # Medium as a separate family (style must be "")
+                self.set_font("BodyM", "", size)
+            elif w == "B":
+                self.set_font(self.fontpack.body, "B", size)
             else:
-                self.set_font(fam, style, size)
+                self.set_font(self.fontpack.body, "", size)
         else:
-            self.set_font("Helvetica", style, size)
+            # Core fonts only: best effort, ignore weight differences
+            self.set_font("Helvetica", "B" if w == "B" else "", size)
 
     def footer(self):
         L = self.layout
         self.set_y(-L.margin_b + inch(0.22))
 
-        self.f_body("", 8)
+        self.f_body("R", 8)
         self.set_text_color(*self.c_muted)
 
         # Left: brand name
@@ -1037,6 +1052,7 @@ class BrandPDF(FPDF):
         # Right: page number
         self.set_x(L.page_w - L.margin_r - inch(0.35))
         self.cell(inch(0.35), inch(0.18), str(self.page_no()), align="R")
+
 
 
 # Plates and imagery helpers already exist above in your file.
