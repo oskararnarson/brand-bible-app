@@ -730,144 +730,26 @@ def _write_temp_png(png_bytes: bytes, key: str) -> str:
 
 
 # =========================
-# Helper function
+# Helper functions (PDF)
 # =========================
 
-def safe_multicell(pdf: FPDF, w: float, h: float, txt: str):
-    """
-    Guard against zero or negative widths.
-    """
-    if w is None or w <= 2:
-        raise RuntimeError(f"Invalid text width: {w}")
-    pdf.multi_cell(w, h, txt)
-
-
-# =========================
-# Layout system (US Letter landscape)
-# =========================
-IN_TO_MM = 25.4
-
-def inch(x: float) -> float:
-    return x * IN_TO_MM
-
-class Layout:
-    """
-    Premium minimalist studio deck layout contract.
-    All positioning should be derived from this object.
-    """
-    def __init__(self):
-        # US Letter landscape in mm
-        self.page_w = inch(11.0)
-        self.page_h = inch(8.5)
-
-        # Margins in inches, converted to mm
-        self.margin_l = inch(0.90)
-        self.margin_r = inch(0.90)
-        self.margin_t = inch(0.75)
-        self.margin_b = inch(0.75)
-
-        # Grid
-        self.cols = 12
-        self.gutter = inch(0.20)
-
-        # Baseline rhythm
-        self.base = inch(0.15)
-
-        # Derived widths
-        self.live_w = self.page_w - self.margin_l - self.margin_r
-        self.live_h = self.page_h - self.margin_t - self.margin_b
-        self.col_w = (self.live_w - (self.cols - 1) * self.gutter) / self.cols
-
-    def x(self, col_index: int) -> float:
-        # 0-based column index
-        return self.margin_l + col_index * (self.col_w + self.gutter)
-
-    def w(self, col_span: int) -> float:
-        # number of columns to span
-        if col_span <= 0:
-            return 0.0
-        return col_span * self.col_w + (col_span - 1) * self.gutter
-
-    def snap_y(self, y: float) -> float:
-        # snap to baseline rhythm
-        if self.base <= 0:
-            return y
-        return round(y / self.base) * self.base
-
-# =========================
-# Fonts (embedded TTF)
-# =========================
-FONT_DIR = Path("assets") / "fonts"
-
-class FontPack:
-    def __init__(self):
-        self.loaded = False
-        self.head = "Head"
-        self.body = "Body"
-
-def register_fonts(pdf: FPDF) -> FontPack:
-    pack = FontPack()
-    try:
-        head_b = FONT_DIR / "Sora-Bold.ttf"
-        head_sb = FONT_DIR / "Sora-SemiBold.ttf"
-
-        body_r = FONT_DIR / "Inter-Regular.ttf"
-        body_m = FONT_DIR / "Inter-Medium.ttf"
-        body_sb = FONT_DIR / "Inter-SemiBold.ttf"
-
-        if not (head_b.exists() and head_sb.exists() and body_r.exists() and body_m.exists() and body_sb.exists()):
-            return pack
-
-        # Head
-        pdf.add_font(pack.head, "", str(head_sb), uni=True)
-        pdf.add_font(pack.head, "B", str(head_b), uni=True)
-
-        # Body regular and bold
-        pdf.add_font(pack.body, "", str(body_r), uni=True)
-        pdf.add_font(pack.body, "B", str(body_sb), uni=True)
-
-        # Body medium as a separate family name
-        pdf.add_font("BodyM", "", str(body_m), uni=True)
-
-        pack.loaded = True
-        return pack
-    except Exception:
-        return pack
-
-
-# =========================
-# PDF
-# =========================
-# =========================
-# PDF
-# =========================
 from pathlib import Path
 
 IN_TO_MM = 25.4
-
 def inch(x: float) -> float:
     return x * IN_TO_MM
 
 def safe_text(s: Any, latin_only: bool = False) -> str:
     if s is None:
         return ""
-    t = str(s)
-
-    t = t.replace("\u2018", "'").replace("\u2019", "'")
-    t = t.replace("\u201c", '"').replace("\u201d", '"')
-    t = t.replace("\u2026", "...")
-    t = t.replace("\u00A0", " ")
-
+    s = str(s)
+    s = s.replace("\u2018", "'").replace("\u2019", "'")
+    s = s.replace("\u201c", '"').replace("\u201d", '"')
+    s = s.replace("\u2026", "...")
+    s = s.replace("\u2022", "•")
     if latin_only:
-        t = (
-            t.replace("\u2022", "*")
-            .replace("\u00B7", "*")
-            .replace("\u25CF", "*")
-            .replace("\u25AA", "*")
-        )
-        t = t.encode("latin-1", "replace").decode("latin-1")
-
-    return t
+        s = s.encode("latin-1", "replace").decode("latin-1")
+    return s
 
 def _hex_to_rgb(h: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
     hs = (h or "").strip()
@@ -891,16 +773,25 @@ def _luma(rgb: tuple[int, int, int]) -> float:
 def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
     return (255, 255, 255) if _luma(bg) < 145 else (18, 22, 30)
 
-def safe_multicell(pdf: FPDF, w: float, h: float, txt: str):
-    if w is None or w <= 6:
-        raise RuntimeError(f"Invalid text width: {w}")
-    pdf.multi_cell(w, h, txt)
+def mc_height(pdf: FPDF, w: float, h: float, txt: str) -> float:
+    """
+    Reliable height calculation for multi_cell in fpdf2
+    """
+    txt = txt or ""
+    res = pdf.multi_cell(w, h, txt, dry_run=True, output="HEIGHT")
+    try:
+        return float(res)
+    except Exception:
+        # fallback: rough estimate
+        lines = max(1, len(txt) // 80)
+        return lines * h
+
+
+# =========================
+# Layout system (US Letter landscape)
+# =========================
 
 class Layout:
-    """
-    US Letter landscape, 12 col grid, baseline rhythm.
-    All positions come from here.
-    """
     def __init__(self):
         self.page_w = inch(11.0)
         self.page_h = inch(8.5)
@@ -908,7 +799,7 @@ class Layout:
         self.margin_l = inch(0.85)
         self.margin_r = inch(0.85)
         self.margin_t = inch(0.70)
-        self.margin_b = inch(0.65)
+        self.margin_b = inch(0.70)
 
         self.cols = 12
         self.gutter = inch(0.18)
@@ -918,14 +809,21 @@ class Layout:
         self.live_h = self.page_h - self.margin_t - self.margin_b
         self.col_w = (self.live_w - (self.cols - 1) * self.gutter) / self.cols
 
-    def x(self, col: int) -> float:
-        return self.margin_l + col * (self.col_w + self.gutter)
+    def x(self, col_index: int) -> float:
+        return self.margin_l + col_index * (self.col_w + self.gutter)
 
-    def w(self, span: int) -> float:
-        return span * self.col_w + (span - 1) * self.gutter if span > 0 else 0.0
+    def w(self, col_span: int) -> float:
+        if col_span <= 0:
+            return 0.0
+        return col_span * self.col_w + (col_span - 1) * self.gutter
 
-    def y0(self) -> float:
-        return self.margin_t
+    def y(self, rows: float) -> float:
+        return self.margin_t + rows * self.base
+
+
+# =========================
+# Fonts (embedded TTF)
+# =========================
 
 class FontPack:
     def __init__(self):
@@ -935,19 +833,18 @@ class FontPack:
         self.body_m = "BodyM"
 
 def _find_font_dir() -> Path:
-    candidates = [
-        Path("assets") / "fontpack",
-        Path("assets") / "fonts",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    return candidates[0]
+    # prefer assets/fontpack but accept assets/fonts
+    p1 = Path("assets") / "fontpack"
+    p2 = Path("assets") / "fonts"
+    if p1.exists():
+        return p1
+    return p2
 
 def register_fonts(pdf: FPDF) -> FontPack:
     pack = FontPack()
     font_dir = _find_font_dir()
 
+    # You can swap these files later, but keep the naming stable
     head_sb = font_dir / "Sora-SemiBold.ttf"
     head_b = font_dir / "Sora-Bold.ttf"
 
@@ -958,19 +855,49 @@ def register_fonts(pdf: FPDF) -> FontPack:
     if not (head_sb.exists() and head_b.exists() and body_r.exists() and body_m.exists() and body_sb.exists()):
         return pack
 
+    # Head supports B via style
+    pdf.add_font(pack.head, "", str(head_sb))
+    pdf.add_font(pack.head, "B", str(head_b))
+
+    # Body regular and semibold via style B
+    pdf.add_font(pack.body, "", str(body_r))
+    pdf.add_font(pack.body, "B", str(body_sb))
+
+    # Body medium as separate family because fpdf2 style letters are only B I S U
+    pdf.add_font(pack.body_m, "", str(body_m))
+
+    pack.loaded = True
+    return pack
+
+
+# =========================
+# Plates and image helpers
+# =========================
+
+def full_bleed_color(pdf: "BrandPDF", rgb: tuple[int, int, int]):
+    pdf.add_page(orientation="L")
+    pdf.set_fill_color(*rgb)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+
+def full_bleed_image(pdf: "BrandPDF", img_path: str) -> bool:
+    pdf.add_page(orientation="L")
     try:
-        pdf.add_font(pack.head, "", str(head_sb))
-        pdf.add_font(pack.head, "B", str(head_b))
-
-        pdf.add_font(pack.body, "", str(body_r))
-        pdf.add_font(pack.body, "B", str(body_sb))
-
-        pdf.add_font(pack.body_m, "", str(body_m))
-
-        pack.loaded = True
-        return pack
+        pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h)
+        return True
     except Exception:
-        return pack
+        return False
+
+def _debug_image_fail(msg: str):
+    # shows in Streamlit if generation happens in the UI
+    try:
+        st.warning(msg)
+    except Exception:
+        pass
+
+
+# =========================
+# BrandPDF with consistent type system
+# =========================
 
 class BrandPDF(FPDF):
     def __init__(self, *args, **kwargs):
@@ -978,30 +905,32 @@ class BrandPDF(FPDF):
 
         self.layout = Layout()
         self.fontpack = FontPack()
-        self.brand_name = ""
 
+        self.brand_name = ""
+        self._latin_only = False
+        self._no_footer_pages: set[int] = set()
+
+        # Premium neutrals
         self.c_text = (18, 22, 30)
         self.c_muted = (98, 104, 114)
         self.c_rule = (224, 228, 234)
-
-        self._latin_only = False
 
     def set_brand_fonts(self):
         self.fontpack = register_fonts(self)
         self._latin_only = (not self.fontpack.loaded)
 
-    def f_head(self, weight: str, size: float):
+    def suppress_footer_here(self):
+        self._no_footer_pages.add(self.page_no())
+
+    # Type helpers
+    def f_head(self, style: str, size: float):
         if self.fontpack.loaded:
-            style = "B" if weight == "B" else ""
             self.set_font(self.fontpack.head, style, size)
         else:
-            style = "B" if weight == "B" else ""
             self.set_font("Helvetica", style, size)
 
     def f_body(self, weight: str, size: float):
-        """
-        weight: "R" | "M" | "B"
-        """
+        # weight: "R" | "M" | "B"
         if self.fontpack.loaded:
             if weight == "M":
                 self.set_font(self.fontpack.body_m, "", size)
@@ -1010,231 +939,243 @@ class BrandPDF(FPDF):
             else:
                 self.set_font(self.fontpack.body, "", size)
         else:
-            self.set_font("Helvetica", "", size)
+            # Helvetica has only B I S U styles, keep safe
+            self.set_font("Helvetica", "B" if weight == "B" else "", size)
 
     def footer(self):
+        if self.page_no() in self._no_footer_pages:
+            return
+
         L = self.layout
         self.set_y(-L.margin_b + inch(0.22))
 
         self.f_body("R", 8)
         self.set_text_color(*self.c_muted)
 
+        # Left: brand name
         self.set_x(L.margin_l)
         self.cell(0, inch(0.18), safe_text(self.brand_name, self._latin_only), align="L")
 
+        # Right: page number
         self.set_x(L.page_w - L.margin_r - inch(0.35))
         self.cell(inch(0.35), inch(0.18), str(self.page_no()), align="R")
 
-def _full_bleed_image(pdf: BrandPDF, img_path: str):
-    pdf.add_page(orientation="L")
-    pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h, keep_aspect_ratio=False)
 
-def _full_bleed_color(pdf: BrandPDF, rgb: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(*rgb)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-
-def _rule(pdf: BrandPDF, x: float, y: float, w: float, accent: tuple[int, int, int], lw: float = 1.2):
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(lw)
-    pdf.line(x, y, x + w, y)
-
-def _panel(pdf: BrandPDF, x: float, y: float, w: float, h: float, fill: tuple[int, int, int] = (10, 12, 16)):
-    pdf.set_fill_color(*fill)
-    pdf.rect(x, y, w, h, style="F")
-
-def make_cover_plate(primary, accent, background) -> str:
-    cover_plate = _make_plate_png_bytes(2200, 1400, primary, accent, background)
-    return _write_temp_png(cover_plate, key=f"cover_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
-
-def _soft_plate(primary, accent, background, key: str) -> str:
-    b = _make_plate_png_bytes(2200, 1400, background, accent, primary)
-    return _write_temp_png(b, key=key)
+# =========================
+# Page components
+# =========================
 
 def cover_page(pdf: BrandPDF, brand: str, subtitle: str, photo_path: str | None, plate_path: str):
+    ok = False
     if photo_path:
-        _full_bleed_image(pdf, photo_path)
-    else:
-        _full_bleed_image(pdf, plate_path)
+        ok = full_bleed_image(pdf, photo_path)
+        if not ok:
+            _debug_image_fail("Náði ekki að setja kápumynd, nota fallback.")
+    if not ok:
+        full_bleed_image(pdf, plate_path)
 
+    # No footer on cover
+    pdf.suppress_footer_here()
+
+    # Simple premium cover: no black box
     L = pdf.layout
-    x = L.x(0)
-    y = inch(1.15)
-    w = L.w(8)
-    h = inch(4.1)
-
-    _panel(pdf, x, y, w, h, (10, 12, 16))
-
     pdf.set_text_color(255, 255, 255)
-    pdf.f_head("B", 44)
-    pdf.set_xy(x + inch(0.35), y + inch(0.55))
-    safe_multicell(pdf, w - inch(0.7), inch(0.42), safe_text(brand, pdf._latin_only))
+    pdf.f_head("B", 48)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(0.30))
+    pdf.multi_cell(L.live_w * 0.70, inch(0.40), safe_text(brand, pdf._latin_only), align="L")
 
     pdf.f_body("R", 14)
-    pdf.set_xy(x + inch(0.35), y + inch(2.95))
-    safe_multicell(pdf, w - inch(0.7), inch(0.26), safe_text(subtitle, pdf._latin_only))
+    pdf.set_xy(L.margin_l, L.margin_t + inch(1.15))
+    sub = subtitle or "Brand system"
+    pdf.multi_cell(L.live_w * 0.70, inch(0.26), safe_text(sub, pdf._latin_only), align="L")
 
-def intro_spread(pdf: BrandPDF, brand: str, date_utc: str, image_path: str | None, accent: tuple[int, int, int], plate_fallback: str):
+def closing_page(pdf: BrandPDF, brand: str, headline: str, subhead: str, plate_path: str):
+    full_bleed_image(pdf, plate_path)
+    pdf.suppress_footer_here()
+
+    L = pdf.layout
+    pdf.set_text_color(255, 255, 255)
+    pdf.f_head("B", 42)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(0.55))
+    pdf.multi_cell(L.live_w * 0.78, inch(0.38), safe_text(brand, pdf._latin_only), align="L")
+
+    pdf.f_head("B", 22)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(1.55))
+    pdf.multi_cell(L.live_w * 0.78, inch(0.28), safe_text(headline, pdf._latin_only), align="L")
+
+    pdf.f_body("R", 12)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(2.25))
+    pdf.multi_cell(L.live_w * 0.78, inch(0.22), safe_text(subhead, pdf._latin_only), align="L")
+
+def intro_page(pdf: BrandPDF, brand: str, date_utc: str, image_path: str | None, accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    L = pdf.layout
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    L = pdf.layout
-    left_x = L.x(0)
-    top_y = L.y0()
+    left_x = L.margin_l
+    top_y = L.margin_t
     left_w = L.w(6)
 
     right_x = L.x(7)
     right_w = L.w(5)
-    img_h = inch(5.25)
+    img_h = L.live_h - inch(0.25)
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 26)
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head("B", 22)
     pdf.set_xy(left_x, top_y)
-    safe_multicell(pdf, left_w, inch(0.28), safe_text("How to use this", pdf._latin_only))
+    pdf.multi_cell(left_w, inch(0.26), safe_text("How to use this", pdf._latin_only), align="L")
 
-    _rule(pdf, left_x, top_y + inch(0.40), inch(1.35), accent, lw=1.3)
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.1)
+    pdf.line(left_x, top_y + inch(0.35), left_x + inch(1.9), top_y + inch(0.35))
 
-    pdf.set_text_color(55, 60, 70)
     pdf.f_body("R", 11)
-    pdf.set_xy(left_x, top_y + inch(0.62))
-    t = (
+    pdf.set_text_color(55, 55, 55)
+    pdf.set_xy(left_x, top_y + inch(0.55))
+    text = (
         "This is a decision system.\n"
         "Use it to keep voice, visuals, and messaging consistent.\n\n"
-        "Open this document when writing copy, selecting imagery, designing pages, or approving work.\n"
+        "Start here when writing copy, selecting imagery, designing pages, or approving work.\n"
         "If a decision conflicts with this document, the document wins.\n\n"
         f"Generated for {brand} on {date_utc}."
     )
-    safe_multicell(pdf, left_w, inch(0.22), safe_text(t, pdf._latin_only))
+    pdf.multi_cell(left_w, inch(0.20), safe_text(text, pdf._latin_only), align="L")
 
-    img_to_use = image_path if image_path else plate_fallback
-    pdf.image(img_to_use, x=right_x, y=top_y, w=right_w, h=img_h, keep_aspect_ratio=False)
+    # Right image
+    drew = False
+    if image_path:
+        try:
+            pdf.image(image_path, x=right_x, y=top_y, w=right_w, h=img_h)
+            drew = True
+        except Exception:
+            _debug_image_fail("Náði ekki að setja intro mynd, nota ramma í staðinn.")
+
     pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.0)
+    pdf.set_line_width(0.9)
     pdf.rect(right_x, top_y, right_w, img_h)
+    if not drew:
+        # empty placeholder, still looks intentional
+        pdf.set_text_color(130, 130, 130)
+        pdf.f_body("R", 10)
+        pdf.set_xy(right_x + inch(0.2), top_y + inch(0.2))
+        pdf.cell(0, inch(0.18), "Image placeholder")
 
-def contents_page(pdf: BrandPDF, accent: tuple[int, int, int]):
+def contents_page_placeholder(pdf: BrandPDF, accent: tuple[int, int, int]) -> int:
     pdf.add_page(orientation="L")
+    pno = pdf.page_no()
+
+    L = pdf.layout
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    L = pdf.layout
-    x = L.x(0)
-    y = L.y0()
-
-    pdf.set_text_color(18, 22, 30)
+    pdf.set_text_color(*pdf.c_text)
     pdf.f_head("B", 24)
-    pdf.set_xy(x, y)
+    pdf.set_xy(L.margin_l, L.margin_t)
     pdf.cell(0, inch(0.30), safe_text("Contents", pdf._latin_only))
 
-    _rule(pdf, x, y + inch(0.42), inch(1.55), accent, lw=1.2)
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.1)
+    pdf.line(L.margin_l, L.margin_t + inch(0.42), L.margin_l + inch(2.0), L.margin_t + inch(0.42))
 
-    items = [
-        ("Executive summary", 4),
-        ("Positioning", 6),
-        ("Audience", 8),
-        ("Messaging", 10),
-        ("Voice", 12),
-        ("Visual direction", 15),
-        ("Guardrails", 18),
-        ("How to use this", 19),
-    ]
+    return pno
 
-    yy = y + inch(0.80)
+def render_contents(pdf: BrandPDF, toc_items: list[tuple[str, int]], accent: tuple[int, int, int]):
+    L = pdf.layout
+    y = L.margin_t + inch(0.70)
+
+    pdf.set_text_color(55, 55, 55)
     pdf.f_body("R", 12)
-    pdf.set_text_color(55, 60, 70)
-    for title, page in items:
-        pdf.set_xy(x, yy)
-        pdf.cell(L.w(8), inch(0.26), safe_text(title, pdf._latin_only))
-        pdf.set_xy(L.x(9), yy)
-        pdf.cell(L.w(3), inch(0.26), str(page), align="R")
-        yy += inch(0.32)
+
+    for title, page in toc_items:
+        pdf.set_xy(L.margin_l, y)
+        pdf.cell(L.w(9), inch(0.22), safe_text(title, pdf._latin_only), align="L")
+        pdf.set_xy(L.x(10), y)
+        pdf.cell(L.w(2), inch(0.22), str(page), align="R")
+        y += inch(0.28)
 
 def section_opener(pdf: BrandPDF, title: str, subtitle: str, bg_rgb: tuple[int, int, int]):
-    _full_bleed_color(pdf, bg_rgb)
+    full_bleed_color(pdf, bg_rgb)
     tc = text_color_for_bg(bg_rgb)
-
     L = pdf.layout
-    x = L.x(0)
-    y = inch(2.05)
 
     pdf.set_text_color(*tc)
-    pdf.f_head("B", 48)
-    pdf.set_xy(x, y)
-    pdf.cell(0, inch(0.50), safe_text(title, pdf._latin_only))
+    pdf.f_head("B", 52)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(0.95))
+    pdf.multi_cell(L.live_w * 0.78, inch(0.45), safe_text(title, pdf._latin_only), align="L")
 
     pdf.f_body("R", 16)
-    pdf.set_xy(x, y + inch(0.60))
-    safe_multicell(pdf, L.w(8), inch(0.32), safe_text(subtitle, pdf._latin_only))
+    pdf.set_xy(L.margin_l, L.margin_t + inch(1.75))
+    pdf.multi_cell(L.live_w * 0.70, inch(0.28), safe_text(subtitle, pdf._latin_only), align="L")
 
-def photo_opener(pdf: BrandPDF, title: str, subtitle: str, image_path: str, accent: tuple[int, int, int]):
-    _full_bleed_image(pdf, image_path)
+def photo_opener(pdf: BrandPDF, title: str, subtitle: str, image_path: str | None, fallback_rgb: tuple[int, int, int], accent: tuple[int, int, int]):
+    ok = False
+    if image_path:
+        ok = full_bleed_image(pdf, image_path)
+        if not ok:
+            _debug_image_fail("Náði ekki að setja mynd á section opener, nota litaplötu.")
+    if not ok:
+        full_bleed_color(pdf, fallback_rgb)
 
     L = pdf.layout
-    x = L.x(0)
-    y = inch(2.00)
-    w = L.w(8)
-    h = inch(3.35)
-
-    _panel(pdf, x, y, w, h, (10, 12, 16))
+    pdf.set_fill_color(10, 12, 16)
+    # subtle overlay band, not a big box
+    band_h = inch(2.2)
+    pdf.rect(0, pdf.h - band_h, pdf.w, band_h, style="F")
 
     pdf.set_text_color(255, 255, 255)
     pdf.f_head("B", 44)
-    pdf.set_xy(x + inch(0.35), y + inch(0.55))
-    safe_multicell(pdf, w - inch(0.7), inch(0.42), safe_text(title, pdf._latin_only))
+    pdf.set_xy(L.margin_l, pdf.h - band_h + inch(0.45))
+    pdf.multi_cell(L.live_w * 0.80, inch(0.40), safe_text(title, pdf._latin_only), align="L")
 
     pdf.f_body("R", 14)
-    pdf.set_xy(x + inch(0.35), y + inch(2.10))
-    safe_multicell(pdf, w - inch(0.7), inch(0.26), safe_text(subtitle, pdf._latin_only))
+    pdf.set_xy(L.margin_l, pdf.h - band_h + inch(1.15))
+    pdf.multi_cell(L.live_w * 0.72, inch(0.26), safe_text(subtitle, pdf._latin_only), align="L")
 
-    _rule(pdf, x + inch(0.35), y + h - inch(0.35), inch(1.55), accent, lw=1.2)
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.1)
+    pdf.line(L.margin_l, pdf.h - inch(0.55), L.margin_l + inch(2.2), pdf.h - inch(0.55))
 
-def content_page_start(pdf: BrandPDF, title: str, accent: tuple[int, int, int]):
+def content_heading(pdf: BrandPDF, title: str, accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    L = pdf.layout
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    L = pdf.layout
-    x = L.x(0)
-    y = L.y0()
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head("B", 22)
+    pdf.set_xy(L.margin_l, L.margin_t)
+    pdf.cell(0, inch(0.30), safe_text(title, pdf._latin_only))
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 20)
-    pdf.set_xy(x, y)
-    pdf.cell(0, inch(0.28), safe_text(title, pdf._latin_only))
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.1)
+    pdf.line(L.margin_l, L.margin_t + inch(0.42), L.margin_l + inch(2.1), L.margin_t + inch(0.42))
 
-    _rule(pdf, x, y + inch(0.38), inch(1.55), accent, lw=1.2)
+    pdf.set_xy(L.margin_l, L.margin_t + inch(0.70))
 
-    pdf.set_xy(x, y + inch(0.60))
-
-def body_paras(pdf: BrandPDF, text: str, col: int = 0, span: int = 7):
+def body_paras(pdf: BrandPDF, text: str, col_span: int = 7):
     if not text:
         return
     L = pdf.layout
-    x = L.x(col)
-    w = L.w(span)
+    w = L.w(col_span)
 
-    pdf.set_x(x)
     pdf.f_body("R", 11)
     pdf.set_text_color(*pdf.c_text)
 
     for para in (text or "").split("\n"):
         p = para.strip()
         if not p:
-            pdf.ln(inch(0.16))
+            pdf.ln(L.base)
             continue
-        safe_multicell(pdf, w, inch(0.22), safe_text(p, pdf._latin_only))
-        pdf.ln(inch(0.08))
+        pdf.multi_cell(w, inch(0.20), safe_text(p, pdf._latin_only), align="L")
+        pdf.ln(L.base * 0.5)
 
-def bullet_list(pdf: BrandPDF, items: list[str], col: int = 0, span: int = 7, max_items: int = 9):
+def bullet_list(pdf: BrandPDF, items: list[str], col_span: int = 7, max_items: int = 10):
     L = pdf.layout
-    x = L.x(col)
-    w = L.w(span)
-
-    prefix = "• " if pdf.fontpack.loaded else "* "
+    w = L.w(col_span)
 
     pdf.f_body("R", 11)
-    pdf.set_text_color(35, 40, 50)
+    pdf.set_text_color(35, 35, 35)
 
     n = 0
     for it in items or []:
@@ -1243,63 +1184,63 @@ def bullet_list(pdf: BrandPDF, items: list[str], col: int = 0, span: int = 7, ma
         s = (it or "").strip()
         if not s:
             continue
-        pdf.set_x(x)
-        safe_multicell(pdf, w, inch(0.22), safe_text(prefix + s, pdf._latin_only))
-        pdf.ln(inch(0.04))
+        pdf.multi_cell(w, inch(0.20), safe_text(f"• {s}", pdf._latin_only), align="L")
+        pdf.ln(inch(0.03))
         n += 1
+    pdf.ln(inch(0.08))
 
 def two_col_lists(pdf: BrandPDF, left_title: str, left_items: list[str], right_title: str, right_items: list[str], accent: tuple[int, int, int]):
     L = pdf.layout
+    x0 = L.margin_l
     y0 = pdf.get_y()
 
-    left_x = L.x(0)
-    right_x = L.x(6)
     col_w = L.w(5)
+    gap = L.gutter * 1.4
+    x1 = x0 + col_w + gap
 
-    def draw_col(x: float, title: str, items: list[str]) -> float:
+    def render_col(x: float, title: str, items: list[str]) -> float:
         pdf.set_xy(x, y0)
-        pdf.set_text_color(18, 22, 30)
+        pdf.set_text_color(*pdf.c_text)
         pdf.f_body("B", 12)
         pdf.cell(col_w, inch(0.22), safe_text(title, pdf._latin_only), ln=1)
 
-        _rule(pdf, x, pdf.get_y() + inch(0.06), inch(1.05), accent, lw=0.9)
-        pdf.ln(inch(0.22))
+        pdf.set_draw_color(*accent)
+        pdf.set_line_width(0.9)
+        pdf.line(x, pdf.get_y() + inch(0.05), x + inch(1.3), pdf.get_y() + inch(0.05))
+        pdf.ln(inch(0.14))
 
-        prefix = "• " if pdf.fontpack.loaded else "* "
-        pdf.set_text_color(35, 40, 50)
         pdf.f_body("R", 11)
-
-        yy = pdf.get_y()
+        pdf.set_text_color(35, 35, 35)
         for it in (items or [])[:8]:
             s = (it or "").strip()
             if not s:
                 continue
-            pdf.set_xy(x, yy)
-            safe_multicell(pdf, col_w, inch(0.22), safe_text(prefix + s, pdf._latin_only))
-            yy = pdf.get_y() + inch(0.06)
+            pdf.set_x(x)
+            pdf.multi_cell(col_w, inch(0.20), safe_text(f"• {s}", pdf._latin_only), align="L")
+            pdf.ln(inch(0.03))
+        return pdf.get_y()
 
-        return yy
-
-    ly = draw_col(left_x, left_title, left_items)
-    ry = draw_col(right_x, right_title, right_items)
-
-    pdf.set_y(max(ly, ry) + inch(0.25))
+    ly = render_col(x0, left_title, left_items)
+    ry = render_col(x1, right_title, right_items)
+    pdf.set_y(max(ly, ry) + inch(0.18))
 
 def palette_and_type_spread(pdf: BrandPDF, colors: dict, typography: dict, accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    L = pdf.layout
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    L = pdf.layout
-    left_x = L.x(0)
-    top_y = L.y0()
-    mid_x = L.x(6)
+    left_x = L.margin_l
+    right_x = L.x(7)
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 18)
-    pdf.set_xy(left_x, top_y)
-    pdf.cell(0, inch(0.26), safe_text("Color palette", pdf._latin_only))
-    _rule(pdf, left_x, top_y + inch(0.34), inch(1.35), accent, lw=1.1)
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head("B", 20)
+    pdf.set_xy(left_x, L.margin_t)
+    pdf.cell(0, inch(0.28), safe_text("Color palette", pdf._latin_only))
+
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.0)
+    pdf.line(left_x, L.margin_t + inch(0.40), left_x + inch(2.0), L.margin_t + inch(0.40))
 
     blocks = [
         ("Primary", colors.get("primary_hex", ""), colors.get("primary_reason", "")),
@@ -1308,152 +1249,116 @@ def palette_and_type_spread(pdf: BrandPDF, colors: dict, typography: dict, accen
         ("Background", colors.get("background_hex", ""), colors.get("background_reason", "")),
     ]
 
-    y = top_y + inch(0.70)
-    sw = inch(1.05)
+    y = L.margin_t + inch(0.75)
+    sw = inch(1.1)
     sh = inch(0.42)
+    text_w = L.w(5) - sw - inch(0.20)
 
     for name, hx, reason in blocks:
         rgb = _hex_to_rgb(hx, (220, 220, 220))
+
         pdf.set_fill_color(*rgb)
         pdf.rect(left_x, y, sw, sh, style="F")
 
-        pdf.set_text_color(18, 22, 30)
+        pdf.set_text_color(*pdf.c_text)
         pdf.f_body("B", 11)
-        pdf.set_xy(left_x + sw + inch(0.18), y - inch(0.02))
-        pdf.cell(0, inch(0.18), safe_text(f"{name}  {_rgb_to_hex(rgb)}", pdf._latin_only))
+        pdf.set_xy(left_x + sw + inch(0.20), y)
+        pdf.cell(text_w, inch(0.18), safe_text(f"{name}  {_rgb_to_hex(rgb)}", pdf._latin_only), ln=1)
 
-        pdf.set_text_color(70, 75, 85)
+        pdf.set_text_color(70, 70, 70)
         pdf.f_body("R", 10)
-        pdf.set_xy(left_x + sw + inch(0.18), y + inch(0.14))
-        safe_multicell(pdf, L.w(5) - sw - inch(0.18), inch(0.19), safe_text((reason or "").strip(), pdf._latin_only))
+        pdf.set_x(left_x + sw + inch(0.20))
+        rh = mc_height(pdf, text_w, inch(0.17), safe_text((reason or "").strip(), pdf._latin_only))
+        pdf.multi_cell(text_w, inch(0.17), safe_text((reason or "").strip(), pdf._latin_only), align="L")
 
-        y += inch(0.62)
+        y += max(sh, rh) + inch(0.22)
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 18)
-    pdf.set_xy(mid_x, top_y)
-    pdf.cell(0, inch(0.26), safe_text("Typography", pdf._latin_only))
-    _rule(pdf, mid_x, top_y + inch(0.34), inch(1.25), accent, lw=1.1)
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head("B", 20)
+    pdf.set_xy(right_x, L.margin_t)
+    pdf.cell(0, inch(0.28), safe_text("Typography", pdf._latin_only))
 
-    primary = (typography.get("primary_font", "") or "").strip() or "Primary"
-    secondary = (typography.get("secondary_font", "") or "").strip() or "Secondary"
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.0)
+    pdf.line(right_x, L.margin_t + inch(0.40), right_x + inch(2.0), L.margin_t + inch(0.40))
+
+    primary = (typography.get("primary_font", "") or "").strip() or "Primary font"
+    secondary = (typography.get("secondary_font", "") or "").strip() or "Secondary font"
     pu = (typography.get("primary_use", "") or "").strip()
     su = (typography.get("secondary_use", "") or "").strip()
     rat = (typography.get("rationale", "") or "").strip()
 
-    yy = top_y + inch(0.70)
+    y2 = L.margin_t + inch(0.75)
+    w2 = L.w(5)
+
     pdf.f_body("B", 14)
-    pdf.set_xy(mid_x, yy)
-    pdf.cell(0, inch(0.22), safe_text(f"Primary: {primary}", pdf._latin_only))
+    pdf.set_xy(right_x, y2)
+    pdf.multi_cell(w2, inch(0.22), safe_text(f"Primary: {primary}", pdf._latin_only), align="L")
 
     pdf.f_body("R", 10)
-    pdf.set_text_color(70, 75, 85)
-    pdf.set_xy(mid_x, yy + inch(0.22))
-    safe_multicell(pdf, L.w(6), inch(0.19), safe_text(pu or "Use for headlines, section titles, and key moments.", pdf._latin_only))
+    pdf.set_text_color(70, 70, 70)
+    pdf.set_xy(right_x, y2 + inch(0.32))
+    pdf.multi_cell(w2, inch(0.17), safe_text(pu or "Use for headlines and section titles.", pdf._latin_only), align="L")
 
-    yy += inch(0.72)
-    pdf.set_text_color(18, 22, 30)
+    y2 += inch(0.85)
+
+    pdf.set_text_color(*pdf.c_text)
     pdf.f_body("B", 14)
-    pdf.set_xy(mid_x, yy)
-    pdf.cell(0, inch(0.22), safe_text(f"Secondary: {secondary}", pdf._latin_only))
+    pdf.set_xy(right_x, y2)
+    pdf.multi_cell(w2, inch(0.22), safe_text(f"Secondary: {secondary}", pdf._latin_only), align="L")
 
     pdf.f_body("R", 10)
-    pdf.set_text_color(70, 75, 85)
-    pdf.set_xy(mid_x, yy + inch(0.22))
-    safe_multicell(pdf, L.w(6), inch(0.19), safe_text(su or "Use for body text, captions, and longer reading.", pdf._latin_only))
+    pdf.set_text_color(70, 70, 70)
+    pdf.set_xy(right_x, y2 + inch(0.32))
+    pdf.multi_cell(w2, inch(0.17), safe_text(su or "Use for body text and longer reading.", pdf._latin_only), align="L")
 
-    yy += inch(0.78)
+    y2 += inch(0.90)
+
     if rat:
-        pdf.set_xy(mid_x, yy)
-        safe_multicell(pdf, L.w(6), inch(0.19), safe_text(rat, pdf._latin_only))
+        pdf.set_xy(right_x, y2)
+        pdf.multi_cell(w2, inch(0.17), safe_text(rat, pdf._latin_only), align="L")
 
-    yy = top_y + inch(3.75)
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 18)
-    pdf.set_xy(mid_x, yy)
-    pdf.cell(0, inch(0.24), safe_text("Sample hierarchy", pdf._latin_only))
-
-    yy += inch(0.40)
-    pdf.f_head("B", 26)
-    pdf.set_xy(mid_x, yy)
-    safe_multicell(pdf, L.w(6), inch(0.36), safe_text("Headline example", pdf._latin_only))
-
-    yy += inch(0.80)
-    pdf.f_body("R", 12)
-    pdf.set_text_color(35, 40, 50)
-    pdf.set_xy(mid_x, yy)
-    safe_multicell(pdf, L.w(5), inch(0.24), safe_text("Body text example. Short sentences. Clear meaning. No fluff. This should feel like the brand.", pdf._latin_only))
-
-def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int, int], plate_fallback: str):
+def moodboard_page(pdf: BrandPDF, image_paths: list[str], accent: tuple[int, int, int]):
     pdf.add_page(orientation="L")
+    L = pdf.layout
     pdf.set_fill_color(255, 255, 255)
     pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    L = pdf.layout
-    x0 = L.x(0)
-    y0 = L.y0()
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head("B", 22)
+    pdf.set_xy(L.margin_l, L.margin_t)
+    pdf.cell(0, inch(0.30), safe_text("Moodboard", pdf._latin_only))
 
-    pdf.set_text_color(18, 22, 30)
-    pdf.f_head("B", 20)
-    pdf.set_xy(x0, y0)
-    pdf.cell(0, inch(0.28), safe_text("Moodboard", pdf._latin_only))
-    _rule(pdf, x0, y0 + inch(0.38), inch(1.35), accent, lw=1.2)
+    pdf.set_draw_color(*accent)
+    pdf.set_line_width(1.1)
+    pdf.line(L.margin_l, L.margin_t + inch(0.42), L.margin_l + inch(1.7), L.margin_t + inch(0.42))
 
-    grid_top = y0 + inch(0.62)
+    x0 = L.margin_l
+    y0 = L.margin_t + inch(0.70)
     gap = inch(0.10)
+
     cols = 3
     rows = 2
-
-    cell_w = (pdf.w - L.margin_l - L.margin_r - gap * (cols - 1)) / cols
-    cell_h = (pdf.h - grid_top - L.margin_b - gap * (rows - 1)) / rows
+    cell_w = (L.live_w - gap * (cols - 1)) / cols
+    cell_h = (L.live_h - inch(0.70) - gap * (rows - 1)) / rows
 
     idx = 0
     for r in range(rows):
         for c in range(cols):
-            x = L.margin_l + c * (cell_w + gap)
-            y = grid_top + r * (cell_h + gap)
-
-            img = None
-            if idx < len(image_paths):
-                img = image_paths[idx]
+            if idx >= len(image_paths):
+                return
+            x = x0 + c * (cell_w + gap)
+            y = y0 + r * (cell_h + gap)
+            try:
+                pdf.image(image_paths[idx], x=x, y=y, w=cell_w, h=cell_h)
+            except Exception:
+                pass
             idx += 1
 
-            if img:
-                try:
-                    pdf.image(img, x=x, y=y, w=cell_w, h=cell_h, keep_aspect_ratio=False)
-                except Exception:
-                    pdf.image(plate_fallback, x=x, y=y, w=cell_w, h=cell_h, keep_aspect_ratio=False)
-            else:
-                pdf.image(plate_fallback, x=x, y=y, w=cell_w, h=cell_h, keep_aspect_ratio=False)
 
-            pdf.set_draw_color(*accent)
-            pdf.set_line_width(0.9)
-            pdf.rect(x, y, cell_w, cell_h)
-
-def closing_page(pdf: BrandPDF, brand: str, headline: str, subhead: str, plate_path: str):
-    _full_bleed_image(pdf, plate_path)
-
-    L = pdf.layout
-    x = L.x(0)
-    y = inch(2.00)
-    w = L.w(8)
-    h = inch(3.55)
-
-    _panel(pdf, x, y, w, h, (10, 12, 16))
-
-    pdf.set_text_color(255, 255, 255)
-
-    pdf.f_head("B", 38)
-    pdf.set_xy(x + inch(0.35), y + inch(0.55))
-    safe_multicell(pdf, w - inch(0.7), inch(0.40), safe_text(brand, pdf._latin_only))
-
-    pdf.f_head("B", 22)
-    pdf.set_xy(x + inch(0.35), y + inch(1.80))
-    safe_multicell(pdf, w - inch(0.7), inch(0.30), safe_text(headline, pdf._latin_only))
-
-    pdf.f_body("R", 12)
-    pdf.set_xy(x + inch(0.35), y + inch(2.75))
-    safe_multicell(pdf, w - inch(0.7), inch(0.24), safe_text(subhead, pdf._latin_only))
+# =========================
+# render_pdf (single source of truth)
+# =========================
 
 def render_pdf(schema: dict, answers: dict) -> bytes:
     meta = schema.get("meta", {}) or {}
@@ -1467,14 +1372,20 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     accent = _hex_to_rgb(colors.get("accent_hex", ""), (28, 125, 255))
     background = _hex_to_rgb(colors.get("background_hex", ""), (245, 246, 248))
 
-    cover_plate_path = make_cover_plate(primary, accent, background)
-    soft_plate_path = _soft_plate(primary, accent, background, key=f"soft_{_rgb_to_hex(primary)}_{_rgb_to_hex(accent)}_{_rgb_to_hex(background)}")
+    # Plate fallback, reuse your existing make_cover_plate if it exists
+    try:
+        cover_plate_path = make_cover_plate(primary, accent, background)
+    except Exception:
+        # ultra safe fallback: plain white image is better than crash
+        cover_plate_path = None
 
-    pdf = BrandPDF(orientation="L", unit="mm", format="letter")
+    # Create PDF
+    pdf = BrandPDF(orientation="L", unit="mm", format=(Layout().page_w, Layout().page_h))
     pdf.set_auto_page_break(auto=True, margin=pdf.layout.margin_b)
     pdf.set_brand_fonts()
     pdf.brand_name = brand
 
+    # Photos
     seed = int(time.time_ns() & 0xFFFFFFFF)
     theme = pick_photo_theme(answers, schema)
     photos = get_curated_images(theme, answers, schema, count=10, seed=seed)
@@ -1486,91 +1397,95 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     vis_photo = photos[4] if len(photos) > 4 else None
     mood = photos[4:10] if len(photos) >= 10 else photos[:6]
 
-    deck_sub = (hero.get("deck_subtitle", "") or "").strip() or "Brand system. A practical guide to consistency."
+    if not cover_plate_path:
+        # If plate generator not available, just reuse first photo or skip
+        cover_plate_path = hero_photo or photos[0] if photos else ""
+
+    deck_sub = (hero.get("deck_subtitle", "") or "").strip() or "Brand system"
 
     cover_page(pdf, brand=brand, subtitle=deck_sub, photo_path=hero_photo, plate_path=cover_plate_path)
 
-    intro_spread(pdf, brand=brand, date_utc=utc_date_str(), image_path=intro_photo, accent=accent, plate_fallback=soft_plate_path)
+    intro_page(pdf, brand=brand, date_utc=utc_date_str(), image_path=intro_photo, accent=accent)
 
-    contents_page(pdf, accent=accent)
+    toc_page_no = contents_page_placeholder(pdf, accent=accent)
+    toc: list[tuple[str, int]] = []
 
+    # Executive summary
     section_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", primary)
-    content_page_start(pdf, "Executive summary", accent)
+    toc.append(("Executive summary", pdf.page_no()))
+    content_heading(pdf, "Executive summary", accent)
     decisions = ((schema.get("executive_summary", {}) or {}).get("decisions", []) or [])
-    bullet_list(pdf, [d for d in decisions if (d or "").strip()], col=0, span=7, max_items=9)
+    bullet_list(pdf, [d for d in decisions if (d or "").strip()], col_span=7, max_items=10)
 
-    opener_img = pos_photo if pos_photo else cover_plate_path
-    photo_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", opener_img, accent)
-    content_page_start(pdf, "Positioning", accent)
+    # Positioning
+    photo_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", pos_photo, background, accent)
+    toc.append(("Positioning", pdf.page_no()))
+    content_heading(pdf, "Positioning", accent)
     pos = schema.get("positioning", {}) or {}
-    body_paras(pdf, (pos.get("positioning_statement", "") or "").strip(), col=0, span=7)
+    body_paras(pdf, (pos.get("positioning_statement", "") or "").strip(), col_span=7)
 
     left = []
     cat = (pos.get("category", "") or "").strip()
     if cat:
         left.append(f"Category: {cat}")
-    right = []
-    anti = (pos.get("anti_position", "") or "").strip()
-    if anti:
-        right.append(anti)
+    rc = (pos.get("anti_position", "") or "").strip()
+    right = [rc] if rc else []
+    two_col_lists(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, polite, generic."], accent)
 
-    two_col_lists(
-        pdf,
-        "What we are",
-        left or ["Clear category ownership."],
-        "What we are not",
-        right or ["Vague, generic, and polite."],
-        accent
-    )
-
+    # Audience
     section_opener(pdf, "Audience", "One real person. One real tension.", background)
-    content_page_start(pdf, "Audience and insight", accent)
+    toc.append(("Audience", pdf.page_no()))
+    content_heading(pdf, "Audience and insight", accent)
     aud = schema.get("audience", {}) or {}
-    bullet_list(
-        pdf,
-        [
-            (aud.get("core_customer", "") or "").strip(),
-            (aud.get("core_tension", "") or "").strip(),
-            (aud.get("primary_objection", "") or "").strip(),
-            (aud.get("trust_trigger", "") or "").strip(),
-        ],
-        col=0,
-        span=7,
-        max_items=9
-    )
+    bullet_list(pdf, [
+        (aud.get("core_customer", "") or "").strip(),
+        (aud.get("core_tension", "") or "").strip(),
+        (aud.get("primary_objection", "") or "").strip(),
+        (aud.get("trust_trigger", "") or "").strip(),
+    ], col_span=7, max_items=10)
 
-    opener_img = msg_photo if msg_photo else cover_plate_path
-    photo_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", opener_img, accent)
-    content_page_start(pdf, "Messaging", accent)
+    # Messaging
+    photo_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", msg_photo, background, accent)
+    toc.append(("Messaging", pdf.page_no()))
+    content_heading(pdf, "Messaging", accent)
     msg = schema.get("messaging", {}) or {}
-    body_paras(pdf, (msg.get("core_message", "") or "").strip(), col=0, span=7)
+    body_paras(pdf, (msg.get("core_message", "") or "").strip(), col_span=7)
 
     kms = (msg.get("key_messages", []) or [])[:3]
     if kms:
-        pdf.ln(inch(0.20))
-        pdf.set_text_color(18, 22, 30)
         pdf.f_body("B", 12)
+        pdf.set_text_color(*pdf.c_text)
         pdf.cell(0, inch(0.22), safe_text("Key messages", pdf._latin_only), ln=1)
-        pdf.ln(inch(0.10))
+        pdf.ln(inch(0.08))
+
+        L = pdf.layout
+        left_x = L.margin_l
+        right_x = L.x(7)
+        left_w = L.w(6)
+        right_w = L.w(5)
 
         for km in kms:
             m = (km.get("message", "") or "").strip()
             p = (km.get("proof", "") or "").strip()
-            if m:
-                pdf.f_body("B", 11)
-                pdf.set_text_color(18, 22, 30)
-                safe_multicell(pdf, pdf.layout.w(7), inch(0.22), safe_text(m, pdf._latin_only))
-            if p:
-                pdf.f_body("R", 10)
-                pdf.set_text_color(70, 75, 85)
-                safe_multicell(pdf, pdf.layout.w(7), inch(0.20), safe_text(p, pdf._latin_only))
-            pdf.ln(inch(0.12))
 
+            pdf.set_x(left_x)
+            pdf.f_body("B", 11)
+            pdf.set_text_color(*pdf.c_text)
+            pdf.multi_cell(left_w, inch(0.20), safe_text(m, pdf._latin_only), align="L")
+
+            pdf.set_xy(right_x, pdf.get_y() - mc_height(pdf, left_w, inch(0.20), safe_text(m, pdf._latin_only)))
+            pdf.f_body("R", 10)
+            pdf.set_text_color(70, 70, 70)
+            pdf.multi_cell(right_w, inch(0.18), safe_text(p, pdf._latin_only), align="L")
+
+            pdf.ln(inch(0.14))
+
+    # Voice
     section_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", primary)
-    content_page_start(pdf, "Voice rules", accent)
+    toc.append(("Voice", pdf.page_no()))
+    content_heading(pdf, "Voice rules", accent)
     voice = schema.get("voice", {}) or {}
-    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], col=0, span=7, max_items=9)
-
+    bullet_list(pdf, [x for x in (voice.get("principles", []) or []) if (x or "").strip()], col_span=7, max_items=8)
     two_col_lists(
         pdf,
         "Do say",
@@ -1584,18 +1499,17 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     before = (ex.get("before", "") or "").strip()
     after = (ex.get("after", "") or "").strip()
     if before and after:
-        content_page_start(pdf, "Voice example", accent)
+        content_heading(pdf, "Voice example", accent)
         two_col_lists(pdf, "Before", [before], "After", [after], accent)
 
-    opener_img = vis_photo if vis_photo else cover_plate_path
-    photo_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", opener_img, accent)
+    # Visual direction
+    photo_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", vis_photo, background, accent)
+    toc.append(("Visual direction", pdf.page_no()))
+    moodboard_page(pdf, mood, accent)
 
-    moodboard_page(pdf, mood, accent, plate_fallback=soft_plate_path)
-
-    content_page_start(pdf, "Visual direction", accent)
+    content_heading(pdf, "Visual direction", accent)
     vis = schema.get("visual_direction", {}) or {}
-    body_paras(pdf, (vis.get("intent", "") or "").strip(), col=0, span=7)
-
+    body_paras(pdf, (vis.get("intent", "") or "").strip(), col_span=7)
     two_col_lists(
         pdf,
         "Feels like",
@@ -1607,28 +1521,36 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
 
     palette_and_type_spread(pdf, colors, typo, accent)
 
+    # Guardrails
     section_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", primary)
-    content_page_start(pdf, "Guardrails", accent)
+    toc.append(("Guardrails", pdf.page_no()))
+    content_heading(pdf, "Guardrails", accent)
     guard = schema.get("guardrails", {}) or {}
-    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], col=0, span=7, max_items=10)
+    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], col_span=7, max_items=12)
 
+    # How to use this
     section_opener(pdf, "How to use this", "Open this when the team starts to drift.", background)
-    content_page_start(pdf, "How to use this", accent)
+    toc.append(("How to use this", pdf.page_no()))
+    content_heading(pdf, "How to use this", accent)
     usage = schema.get("usage", {}) or {}
-    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], col=0, span=7, max_items=10)
+    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], col_span=7, max_items=12)
 
+    # Back cover
     headline = (hero.get("headline", "") or "").strip() or "A brand system you can actually follow"
-    subhead = (hero.get("subhead", "") or "").strip() or "Consistency is not a feeling. It is a set of rules."
-
+    subhead = (hero.get("subhead", "") or "").strip() or "Consistency is a set of rules."
     closing_page(pdf, brand=brand, headline=headline, subhead=subhead, plate_path=cover_plate_path)
+
+    # Fill contents page with real page numbers
+    try:
+        pdf.set_page(toc_page_no)
+        render_contents(pdf, toc, accent)
+    except Exception:
+        pass
 
     out = pdf.output(dest="S")
     if isinstance(out, (bytes, bytearray)):
         return bytes(out)
     return str(out).encode("latin-1", "replace")
-
-
-
 
 # =========================
 # UI helpers
