@@ -808,11 +808,9 @@ class FontPack:
 def register_fonts(pdf: FPDF) -> FontPack:
     pack = FontPack()
     try:
-        # Head font (Sora or Space Grotesk)
         head_b = FONT_DIR / "Sora-Bold.ttf"
         head_sb = FONT_DIR / "Sora-SemiBold.ttf"
 
-        # Body font (Inter)
         body_r = FONT_DIR / "Inter-Regular.ttf"
         body_m = FONT_DIR / "Inter-Medium.ttf"
         body_sb = FONT_DIR / "Inter-SemiBold.ttf"
@@ -820,17 +818,22 @@ def register_fonts(pdf: FPDF) -> FontPack:
         if not (head_b.exists() and head_sb.exists() and body_r.exists() and body_m.exists() and body_sb.exists()):
             return pack
 
-        pdf.add_font(pack.head, "", str(head_sb))
-        pdf.add_font(pack.head, "B", str(head_b))
+        # Head
+        pdf.add_font(pack.head, "", str(head_sb), uni=True)
+        pdf.add_font(pack.head, "B", str(head_b), uni=True)
 
-        pdf.add_font(pack.body, "", str(body_r))
-        pdf.add_font(pack.body, "B", str(body_sb))
-        pdf.add_font(pack.body, "I", str(body_r))
+        # Body regular and bold
+        pdf.add_font(pack.body, "", str(body_r), uni=True)
+        pdf.add_font(pack.body, "B", str(body_sb), uni=True)
+
+        # Body medium as a separate family name
+        pdf.add_font("BodyM", "", str(body_m), uni=True)
 
         pack.loaded = True
         return pack
     except Exception:
         return pack
+
 
 # =========================
 # PDF
