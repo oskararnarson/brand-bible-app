@@ -870,7 +870,7 @@ class BrandPDF(FPDF):
 
         self._brand_name = ""
         self.layout = Layout()
-        self.fonts = FontPack()
+        self.fontpack = FontPack()
 
         # Default text colors (tuned for premium minimal)
         self.c_text = (18, 22, 30)
@@ -881,8 +881,8 @@ class BrandPDF(FPDF):
         L = self.layout
         self.set_y(-L.margin_b + inch(0.18))
 
-        if self.fonts.loaded:
-            self.set_font(self.fonts.body, "", 8)
+        if self.fontpack.loaded:
+            self.set_font(self.fontpack.body, "", 8)
         else:
             self.set_font("Helvetica", "", 8)
 
@@ -1299,7 +1299,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=pdf.layout.margin_b)
 
     # Embed fonts if available
-    pdf.fonts = register_fonts(pdf)
+    pdf.fontpack = register_fonts(pdf)
     pdf._brand_name = brand
 
 
@@ -1442,7 +1442,7 @@ def render_pdf(schema: dict, answers: dict) -> bytes:
         return bytes(out)
     return str(out).encode("latin-1", "replace")
 
-    if not pdf.fonts.loaded:
+    if not pdf.fontpack.loaded:
         schema = sanitize_obj(schema)
 
 # =========================
