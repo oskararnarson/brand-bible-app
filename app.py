@@ -3,11 +3,10 @@ import os
 import re
 import tempfile
 import time
-import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 import streamlit as st
 from fpdf import FPDF
@@ -17,44 +16,51 @@ try:
 except Exception:
     requests = None
 
+# Optional providers
 try:
     import google.generativeai as genai
 except Exception:
     genai = None
 
-# OpenAI is optional. Only imported if provider is OpenAI.
-# pip install openai
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 
+# =========================================================
+# App config
+# =========================================================
 st.set_page_config(page_title="Messaging Rules Generator", layout="wide", page_icon="◼")
 
 
-# =========================
+# =========================================================
 # Session state
-# =========================
+# =========================================================
 def ss_init():
     defaults = {
         "view": "landing",
         "step_index": 0,
         "answers": {},
-        "provider": "gemini",  # gemini or openai
-        "gemini_key": "",
-        "openai_key": "",
-        "openai_model": "gpt-4.1-mini",
-        "unsplash_key": "",
-        "include_images": False,  # default OFF
         "gen_used": 0,
         "gen_max": 5,
         "last_json": None,
         "pdf_bytes": None,
         "model_used": "",
         "error": "",
+        # Provider
+        "provider": "gemini",  # gemini or openai
+        "gemini_key": "",
+        "openai_key": "",
+        "openai_model": "gpt-4.1-mini",
+        # Images (optional)
+        "include_images": False,
+        "unsplash_key": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    # secrets
     if not st.session_state.gemini_key:
         st.session_state.gemini_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
 
@@ -86,9 +92,9 @@ def reset_app(keep_keys: bool = True):
             st.session_state[k] = v
 
 
-# =========================
+# =========================================================
 # CSS
-# =========================
+# =========================================================
 def inject_css():
     st.markdown(
         """
@@ -139,7 +145,7 @@ html, body { background: var(--bg); color: var(--fg); }
   line-height: 1.7;
   color: var(--muted);
   margin-bottom: 18px;
-  max-width: 900px;
+  max-width: 860px;
 }
 
 hr.soft{
@@ -149,18 +155,8 @@ hr.soft{
   margin: 18px 0;
 }
 
-.pills{ display:flex; gap:10px; flex-wrap:wrap; margin-top: 12px; }
-.pill{
-  font-size: 12px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  color: rgba(235,240,255,0.75);
-}
-
 .bigBtn div.stButton > button{
-  width: 290px;
+  width: 320px;
   height: 54px;
   border-radius: 999px;
   font-size: 18px;
@@ -207,9 +203,9 @@ label{
     )
 
 
-# =========================
-# Intake (Messaging Rules, 10 questions)
-# =========================
+# =========================================================
+# Intake: 10 questions only
+# =========================================================
 @dataclass
 class Question:
     id: str
@@ -222,34 +218,34 @@ class Question:
 
 
 QUESTIONS: list[Question] = [
-    Question("q1", "Brand name", "Short, memorable. The anchor for everything.", "text", "brand_name",
-             placeholder="Example: MindOS"),
-    Question("q2", "What do you actually sell", "Not the product. The outcome, leverage, or control people pay for.", "textarea", "sell",
+    Question("q1", "Company or product name", "The label on the ruleset.", "text", "brand_name", placeholder="Example: MindOS"),
+    Question("q2", "What do you actually sell", "Not the product. The outcome people pay for.", "textarea", "sell_outcome",
              placeholder="We sell ___ so that ___ no longer has to ___."),
-    Question("q3", "The belief you assert as fact", "Doctrine. The sentence you treat as true even when people disagree.", "textarea", "belief",
-             placeholder="We believe ___ is true, even when it is uncomfortable."),
-    Question("q4", "The misunderstood problem you fix", "The lazy assumption you reject.", "textarea", "misunderstood",
+    Question("q3", "The belief you assert as fact", "Your doctrine. Not a slogan.", "textarea", "doctrine_belief",
+             placeholder="We believe ___."),
+    Question("q4", "The misunderstood problem you fix", "The lazy assumption you reject.", "textarea", "misunderstood_problem",
              placeholder="Most people think ___, but the real problem is ___."),
-    Question("q5", "Who this is absolutely for", "Describe one recognisable person. Not a segment.", "textarea", "for_who",
-             placeholder="They are the kind of person who ___ and is frustrated by ___."),
-    Question("q6", "What this is not", "The anti model. What you refuse to resemble.", "textarea", "not_this",
+    Question("q5", "Who this is absolutely for", "Describe one recognisable person, not a segment.", "textarea", "core_customer",
+             placeholder="They are the kind of person who ___. They are frustrated by ___."),
+    Question("q6", "What this is not", "The anti model. What you refuse to resemble.", "textarea", "anti_model",
              placeholder="We refuse to feel like ___."),
-    Question("q7", "What language is banned", "Words, tones, and implications that instantly corrupt the brand.", "textarea", "banned_language",
-             placeholder="We never say, imply, or sound like ___."),
-    Question("q8", "What proof is required before claims are trusted", "The evidence standard you respect.", "textarea", "proof_standard",
-             placeholder="We only earn trust through ___."),
-    Question("q9", "One sentence sales is allowed to use", "If sales can only say one sentence, this is it.", "textarea", "sales_sentence",
+    Question("q7", "What language is banned", "Words, tones, or implications that corrupt the brand.", "textarea", "banned_language",
+             placeholder="Never say or imply ___. Never sound like ___."),
+    Question("q8", "What proof is required before claims are trusted", "Your evidence standard.", "textarea", "proof_standard",
+             placeholder="We earn trust through ___."),
+    Question("q9", "One sentence sales is allowed to use", "If this fails, everything fails.", "textarea", "sales_sentence",
              placeholder="If you are ___ and want ___, this exists for you."),
-    Question("q10", "The failure mode if this is done wrong", "Name the cringe version. The thing your rules prevent.", "textarea", "failure_mode",
+    Question("q10", "Failure mode if done wrong", "The version of this that becomes hollow or performative.", "textarea", "failure_mode",
              placeholder="If we get this wrong, it becomes ___."),
 ]
 
 
-def wizard_steps() -> list[dict]:
-    steps: list[dict] = []
+def steps() -> list[dict]:
+    out: list[dict] = [{"type": "intro"}]
     for q in QUESTIONS:
-        steps.append({"type": "question", "qid": q.id})
-    return steps
+        out.append({"type": "question", "qid": q.id})
+    out.append({"type": "confirm"})
+    return out
 
 
 def get_question(qid: str) -> Question:
@@ -259,23 +255,9 @@ def get_question(qid: str) -> Question:
     raise KeyError(qid)
 
 
-# =========================
-# LLM providers
-# =========================
-class LLMProvider(Protocol):
-    name: str
-
-    def generate_json(self, prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
-        ...
-
-
-PREFERRED_GEMINI_CONTAINS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-pro",
-    "gemini",
-]
-
-
+# =========================================================
+# Provider + prompt
+# =========================================================
 def utc_date_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -290,168 +272,39 @@ def extract_json_object(text: str) -> str:
     return m.group(0).strip()
 
 
-def validate_required_keys(data: dict) -> None:
-    required = [
-        "meta",
-        "hero",
-        "executive_summary",
-        "messaging_rules",
-        "voice_rules",
-        "examples",
-        "guardrails",
-        "usage",
-        "appendix",
-    ]
-    missing = [k for k in required if k not in data]
-    if missing:
-        raise ValueError(f"JSON missing required keys: {missing}")
-
-
-@dataclass
-class GeminiProvider:
-    api_key: str
-    name: str = "gemini"
-
-    def _list_generation_models(self) -> list[str]:
-        if genai is None:
-            return []
-        out: list[str] = []
-        try:
-            for m in genai.list_models():
-                mn = getattr(m, "name", "") or ""
-                methods = getattr(m, "supported_generation_methods", None) or []
-                if mn and "generateContent" in methods:
-                    out.append(mn)
-        except Exception:
-            return []
-        return out
-
-    def _choose_models_to_try(self) -> list[str]:
-        avail = self._list_generation_models()
-        if not avail:
-            return PREFERRED_GEMINI_CONTAINS[:]
-        chosen: list[str] = []
-        for p in PREFERRED_GEMINI_CONTAINS:
-            for n in avail:
-                if p in n and n not in chosen:
-                    chosen.append(n)
-        for n in avail:
-            if n not in chosen:
-                chosen.append(n)
-        return chosen
-
-    def generate_json(self, prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
-        if genai is None:
-            raise RuntimeError("google.generativeai is not installed.")
-        import concurrent.futures
-
-        genai.configure(api_key=self.api_key)
-
-        last_err: Exception | None = None
-        for model_name in self._choose_models_to_try():
-            try:
-                model = genai.GenerativeModel(model_name)
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(model.generate_content, prompt)
-                    resp = fut.result(timeout=timeout_s)
-                raw = (getattr(resp, "text", "") or "").strip()
-                data = json.loads(extract_json_object(raw))
-                validate_required_keys(data)
-                return data, model_name
-            except concurrent.futures.TimeoutError:
-                last_err = RuntimeError(f"Timeout after {timeout_s} seconds.")
-            except Exception as e:
-                last_err = e
-        raise RuntimeError(f"Gemini generation failed: {last_err}")
-
-
-@dataclass
-class OpenAIProvider:
-    api_key: str
-    model: str = "gpt-4.1-mini"
-    name: str = "openai"
-
-    def generate_json(self, prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=self.api_key)
-
-        # Lower temperature for schema compliance.
-        resp = client.responses.create(
-            model=self.model,
-            input=prompt,
-            temperature=0.2,
-            max_output_tokens=2200,
-        )
-        raw = (resp.output_text or "").strip()
-        data = json.loads(extract_json_object(raw))
-        validate_required_keys(data)
-        return data, self.model
-
-
-def make_provider() -> LLMProvider:
-    prov = (st.session_state.provider or "gemini").strip().lower()
-    if prov == "openai":
-        key = (st.session_state.openai_key or "").strip()
-        if not key:
-            raise ValueError("Missing OpenAI API key.")
-        model = (st.session_state.openai_model or "gpt-4.1-mini").strip()
-        return OpenAIProvider(api_key=key, model=model)
-
-    key = (st.session_state.gemini_key or "").strip()
-    if not key:
-        raise ValueError("Missing Gemini API key.")
-    return GeminiProvider(api_key=key)
-
-
-# =========================
-# Prompt (Messaging Rules)
-# =========================
-FONT_POOL = [
-    "Inter", "Sora", "Manrope", "IBM Plex Sans", "Work Sans", "Public Sans", "Source Sans 3"
-]
-
-
 def build_prompt(answers: dict, version_str: str) -> str:
     brand = (answers.get("brand_name", "") or "").strip()
-    date_utc = utc_date_str()
     answers_json = json.dumps(answers, ensure_ascii=False, indent=2)
 
     schema = (
         "{\n"
         '  "meta": { "brand_name": "", "version": "", "date_utc": "" },\n'
-        '  "hero": { "title": "", "subtitle": "" },\n'
-        '  "executive_summary": { "non_negotiables": [""] },\n'
+        '  "hero": { "headline": "", "subhead": "", "deck_subtitle": "" },\n'
+        '  "executive_summary": { "decisions": [""] },\n'
         '  "messaging_rules": {\n'
         '    "what_we_sell": "",\n'
         '    "doctrine": [""],\n'
         '    "allowed_framing_patterns": [""],\n'
         '    "forbidden_framing_patterns": [""],\n'
         '    "banned_words": [""],\n'
-        '    "proof_standard": [""]\n'
+        '    "proof_standard": "",\n'
+        '    "non_negotiables": [""]\n'
         "  },\n"
         '  "voice_rules": {\n'
         '    "must_sound_like": [""],\n'
         '    "must_not_sound_like": [""],\n'
-        '    "rules": [""],\n'
-        '    "do_say": [""],\n'
-        '    "do_not_say": [""]\n'
+        '    "rules": [""]\n'
         "  },\n"
         '  "examples": {\n'
         '    "sales_sentence": "",\n'
         '    "headlines": [""],\n'
         '    "social_posts": [""],\n'
-        '    "before_after": [ { "before": "", "after": "", "rule": "" } ]\n'
+        '    "before_after": [ { "rule": "", "before": "", "after": "" } ]\n'
         "  },\n"
         '  "guardrails": {\n'
         '    "failure_modes": [""],\n'
-        '    "red_flags_in_copy": [""],\n'
+        '    "red_flags": [""],\n'
         '    "approval_checklist": [""]\n'
-        "  },\n"
-        '  "usage": {\n'
-        '    "how_to_use": [""],\n'
-        '    "when_to_regenerate": [""],\n'
-        '    "how_to_brief_writers": [""]\n'
         "  },\n"
         '  "appendix": {\n'
         '    "color_suggestions": [ { "name": "", "hex": "", "reason": "" } ],\n'
@@ -460,32 +313,20 @@ def build_prompt(answers: dict, version_str: str) -> str:
         "}\n"
     )
 
-    # Important: enforce derived output, not echoes.
     prompt = (
-        "You are a senior brand strategist.\n"
-        "You create operational messaging rules, not a brand book.\n"
-        "You decide. You do not describe.\n\n"
-        "Hard constraints:\n"
-        "1) Do not copy the user's phrasing verbatim unless it is a short keyword.\n"
-        "2) Convert intent into enforceable rules, constraints, and tests.\n"
-        "3) If an answer is vague, resolve it decisively. Do not hedge.\n"
-        "4) Avoid cliches and startup hype. No therapy language.\n"
-        "5) Return ONLY valid JSON matching the schema exactly.\n"
-        "6) No markdown. No commentary. No extra keys.\n\n"
-        "Typography suggestions:\n"
-        "Pick from this pool when possible: " + ", ".join(FONT_POOL) + "\n\n"
-        "Output requirements:\n"
-        "- executive_summary.non_negotiables must be short, sharp, and enforceable.\n"
-        "- messaging_rules.allowed_framing_patterns and forbidden_framing_patterns must be concrete patterns.\n"
-        "- voice_rules.rules must be behavioral rules, not adjectives.\n"
-        "- examples.before_after must include a rule label that explains the change.\n"
-        "- guardrails.approval_checklist must be usable under time pressure.\n\n"
+        "You are a senior strategist writing an operational language ruleset.\n"
+        "Write rules, constraints, and tests. Do not write a brand book.\n"
+        "Do not echo user answers verbatim. Derive sharper rules.\n"
+        "Be decisive. If user input is vague, resolve it.\n"
+        "No hype. No cliches. No startup buzzwords.\n"
+        "Return ONLY valid JSON matching the schema exactly.\n"
+        "No markdown. No commentary. No extra keys.\n\n"
         "JSON SCHEMA:\n"
         f"{schema}\n"
         "INPUT:\n"
         f"Brand name: {brand}\n"
         f"Version: {version_str}\n"
-        f"Date UTC: {date_utc}\n\n"
+        f"Date UTC: {utc_date_str()}\n\n"
         "Intake answers JSON:\n"
         f"{answers_json}\n\n"
         "Return JSON only.\n"
@@ -493,9 +334,60 @@ def build_prompt(answers: dict, version_str: str) -> str:
     return prompt
 
 
-# =========================
-# Optional Unsplash cover image (default off)
-# =========================
+def generate_with_gemini(prompt: str, api_key: str, timeout_s: int = 35) -> tuple[dict, str]:
+    if genai is None:
+        raise RuntimeError("google-generativeai not installed.")
+    genai.configure(api_key=api_key)
+
+    # Keep simple and predictable
+    model_candidates = [
+        "gemini-2.0-flash",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini",
+    ]
+
+    last_err: Exception | None = None
+    for m in model_candidates:
+        try:
+            model = genai.GenerativeModel(m)
+            # No threads, fewer moving parts
+            resp = model.generate_content(prompt)
+            raw = (getattr(resp, "text", "") or "").strip()
+            data = json.loads(extract_json_object(raw))
+            # Minimal validation
+            for k in ["meta", "hero", "executive_summary", "messaging_rules", "voice_rules", "examples", "guardrails", "appendix"]:
+                if k not in data:
+                    raise ValueError("JSON missing required keys.")
+            return data, m
+        except Exception as e:
+            last_err = e
+            continue
+    raise RuntimeError(f"Gemini generation failed: {last_err}")
+
+
+def generate_with_openai(prompt: str, api_key: str, model: str) -> tuple[dict, str]:
+    if OpenAI is None:
+        raise RuntimeError("openai package not installed.")
+    client = OpenAI(api_key=api_key)
+
+    resp = client.responses.create(
+        model=model,
+        input=prompt,
+        temperature=0.2,
+        max_output_tokens=2200,
+    )
+    raw = (getattr(resp, "output_text", "") or "").strip()
+    data = json.loads(extract_json_object(raw))
+    for k in ["meta", "hero", "executive_summary", "messaging_rules", "voice_rules", "examples", "guardrails", "appendix"]:
+        if k not in data:
+            raise ValueError("JSON missing required keys.")
+    return data, model
+
+
+# =========================================================
+# Optional images (off by default)
+# =========================================================
 UNSPLASH_API = "https://api.unsplash.com"
 
 
@@ -529,22 +421,12 @@ def _download_image_to_temp(url: str) -> Optional[str]:
         return None
 
 
-def unsplash_cover_image(access_key: str, query: str) -> Optional[str]:
+def unsplash_one(access_key: str, query: str, orientation: str = "landscape") -> Optional[str]:
     if not access_key or requests is None:
         return None
+    params = {"query": query, "orientation": orientation, "content_filter": "high", "count": 1}
     try:
-        params = {
-            "query": query,
-            "orientation": "landscape",
-            "content_filter": "high",
-            "count": 1,
-        }
-        r = requests.get(
-            f"{UNSPLASH_API}/photos/random",
-            headers=_unsplash_headers(access_key),
-            params=params,
-            timeout=18,
-        )
+        r = requests.get(f"{UNSPLASH_API}/photos/random", headers=_unsplash_headers(access_key), params=params, timeout=18)
         if r.status_code != 200:
             return None
         js = r.json()
@@ -559,16 +441,9 @@ def unsplash_cover_image(access_key: str, query: str) -> Optional[str]:
         return None
 
 
-def cover_query_from_output(data: dict) -> str:
-    # Keep this extremely constrained to avoid semantic contamination.
-    # Abstract, architectural, instrument-like visuals only.
-    brand = ((data.get("meta", {}) or {}).get("brand_name", "") or "").strip()
-    return f"{brand} abstract minimal architecture no people"
-
-
-# =========================
-# PDF helpers and layout
-# =========================
+# =========================================================
+# PDF rendering: clean layout, no bullets, no black boxes
+# =========================================================
 IN_TO_MM = 25.4
 
 
@@ -580,23 +455,14 @@ def safe_text(s: Any, latin_only: bool = False) -> str:
     if s is None:
         return ""
     t = str(s)
-    # Replace typographic punctuation that can break fonts.
+    # normalize common punctuation to avoid encoding issues
     t = t.replace("\u2018", "'").replace("\u2019", "'")
     t = t.replace("\u201c", '"').replace("\u201d", '"')
     t = t.replace("\u2026", "...")
     t = t.replace("\u00A0", " ")
-    # Never use en dash or em dash in output.
-    t = t.replace("\u2013", "-").replace("\u2014", "-")
     if latin_only:
-        t = t.replace("\u2022", "*").replace("\u00B7", "*").replace("\u25CF", "*").replace("\u25AA", "*")
         t = t.encode("latin-1", "replace").decode("latin-1")
     return t
-
-
-def safe_multicell(pdf: FPDF, w: float, h: float, txt: str):
-    if w is None or w <= 6:
-        raise RuntimeError(f"Invalid text width: {w}")
-    pdf.multi_cell(w, h, txt)
 
 
 def _hex_to_rgb(h: str, fallback: tuple[int, int, int]) -> tuple[int, int, int]:
@@ -616,571 +482,458 @@ def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
     return f"#{r:02X}{g:02X}{b:02X}"
 
 
-def _luma(rgb: tuple[int, int, int]) -> float:
-    r, g, b = rgb
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+class BrandPDF(FPDF):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-
-def text_color_for_bg(bg: tuple[int, int, int]) -> tuple[int, int, int]:
-    return (255, 255, 255) if _luma(bg) < 145 else (18, 22, 30)
-
-
-class Layout:
-    def __init__(self):
+        # Letter landscape
         self.page_w = inch(11.0)
         self.page_h = inch(8.5)
 
-        self.margin_l = inch(0.90)
-        self.margin_r = inch(0.90)
+        self.margin_l = inch(0.85)
+        self.margin_r = inch(0.85)
         self.margin_t = inch(0.75)
         self.margin_b = inch(0.70)
 
-        self.cols = 12
-        self.gutter = inch(0.18)
-        self.base = inch(0.14)
-
         self.live_w = self.page_w - self.margin_l - self.margin_r
         self.live_h = self.page_h - self.margin_t - self.margin_b
-        self.col_w = (self.live_w - (self.cols - 1) * self.gutter) / self.cols
 
-    def x(self, col: int) -> float:
-        return self.margin_l + col * (self.col_w + self.gutter)
-
-    def w(self, span: int) -> float:
-        if span <= 0:
-            return 0.0
-        return span * self.col_w + (span - 1) * self.gutter
-
-    def y0(self) -> float:
-        return self.margin_t
-
-
-FONT_DIR = Path("assets") / "fontpack"
-
-
-class FontPack:
-    def __init__(self):
-        self.loaded = False
-        self.head = "Head"
-        self.body = "Body"
-        self.body_m = "BodyM"
-
-
-def register_fonts(pdf: FPDF) -> FontPack:
-    pack = FontPack()
-    head_sb = FONT_DIR / "Sora-SemiBold.ttf"
-    head_b = FONT_DIR / "Sora-Bold.ttf"
-    body_r = FONT_DIR / "Inter-Regular.ttf"
-    body_m = FONT_DIR / "Inter-Medium.ttf"
-    body_sb = FONT_DIR / "Inter-SemiBold.ttf"
-
-    if not (head_sb.exists() and head_b.exists() and body_r.exists() and body_m.exists() and body_sb.exists()):
-        return pack
-
-    try:
-        pdf.add_font(pack.head, "", str(head_sb), uni=True)
-        pdf.add_font(pack.head, "B", str(head_b), uni=True)
-        pdf.add_font(pack.body, "", str(body_r), uni=True)
-        pdf.add_font(pack.body, "B", str(body_sb), uni=True)
-        pdf.add_font(pack.body_m, "", str(body_m), uni=True)
-        pack.loaded = True
-        return pack
-    except Exception:
-        return pack
-
-
-class RulesPDF(FPDF):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.layout = Layout()
-        self.fontpack = FontPack()
         self.brand_name = ""
-        self.c_text = (18, 22, 30)
-        self.c_muted = (112, 118, 128)
         self._latin_only = False
         self._suppress_footer = False
 
+        # Palette
+        self.c_bg = (255, 255, 255)
+        self.c_text = (18, 22, 30)
+        self.c_muted = (90, 96, 110)
+        self.c_panel = (246, 247, 249)
+        self.c_stroke = (225, 228, 234)
+        self.c_accent = (28, 125, 255)
+
     def set_brand_fonts(self):
-        self.fontpack = register_fonts(self)
-        self._latin_only = (not self.fontpack.loaded)
+        # Use built-in fonts for maximum reliability
+        # You can re-add your fontpack later once layout is stable
+        self._latin_only = False
 
-    def f_head(self, weight: str, size: float):
-        if self.fontpack.loaded:
-            style = "B" if weight == "B" else ""
-            self.set_font(self.fontpack.head, style, size)
-        else:
-            style = "B" if weight == "B" else ""
-            self.set_font("Helvetica", style, size)
+    def f_head(self, size: float, bold: bool = True):
+        self.set_font("Helvetica", "B" if bold else "", size)
 
-    def f_body(self, weight: str, size: float):
-        if self.fontpack.loaded:
-            if weight == "M":
-                self.set_font(self.fontpack.body_m, "", size)
-            elif weight == "B":
-                self.set_font(self.fontpack.body, "B", size)
-            else:
-                self.set_font(self.fontpack.body, "", size)
-        else:
-            style = "B" if weight == "B" else ""
-            self.set_font("Helvetica", style, size)
+    def f_body(self, size: float, bold: bool = False):
+        self.set_font("Helvetica", "B" if bold else "", size)
 
     def footer(self):
         if self._suppress_footer:
             return
-        L = self.layout
-        self.set_y(-L.margin_b + inch(0.22))
-        self.f_body("R", 8)
+        self.set_y(-self.margin_b + inch(0.22))
+        self.f_body(8, False)
         self.set_text_color(*self.c_muted)
-
-        self.set_x(L.margin_l)
+        self.set_x(self.margin_l)
         self.cell(0, inch(0.18), safe_text(self.brand_name, self._latin_only), align="L")
-
-        self.set_x(L.page_w - L.margin_r - inch(0.35))
+        self.set_x(self.page_w - self.margin_r - inch(0.35))
         self.cell(inch(0.35), inch(0.18), str(self.page_no()), align="R")
 
-
-def _full_bleed_color(pdf: RulesPDF, rgb: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(*rgb)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-
-
-def _full_bleed_image(pdf: RulesPDF, img_path: str):
-    pdf.add_page(orientation="L")
-    pdf.image(img_path, x=0, y=0, w=pdf.w, h=pdf.h, keep_aspect_ratio=False)
-
-
-def _panel(pdf: RulesPDF, x: float, y: float, w: float, h: float, fill: tuple[int, int, int]):
-    pdf.set_fill_color(*fill)
-    pdf.rect(x, y, w, h, style="F")
-
-
-def _title_rule(pdf: RulesPDF, x: float, y: float, w: float, accent: tuple[int, int, int]):
-    pdf.set_draw_color(*accent)
-    pdf.set_line_width(1.2)
-    pdf.line(x, y, x + w, y)
-
-
-def page_title(pdf: RulesPDF, title: str, accent: tuple[int, int, int]):
-    L = pdf.layout
-    x = L.x(0)
-    y = L.y0()
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_head("B", 22)
-    pdf.set_xy(x, y)
-    pdf.cell(0, inch(0.28), safe_text(title, pdf._latin_only))
-    _title_rule(pdf, x, y + inch(0.40), inch(1.55), accent)
-    pdf.set_xy(x, y + inch(0.62))
-
-
-def bullet_list(pdf: RulesPDF, items: list[str], x: float, w: float, line_h: float, max_items: int = 12):
-    prefix = "• " if pdf.fontpack.loaded else "* "
-    pdf.f_body("R", 11)
-    pdf.set_text_color(35, 40, 50)
-    n = 0
-    for it in items or []:
-        if n >= max_items:
-            break
-        s = (it or "").strip()
-        if not s:
-            continue
-        pdf.set_x(x)
-        safe_multicell(pdf, w, line_h, safe_text(prefix + s, pdf._latin_only))
-        pdf.ln(inch(0.06))
-        n += 1
-
-
-def body_paras(pdf: RulesPDF, text: str, x: float, w: float):
-    if not text:
-        return
-    pdf.f_body("R", 11)
-    pdf.set_text_color(*pdf.c_text)
-    for para in (text or "").split("\n"):
-        p = para.strip()
-        if not p:
-            pdf.ln(inch(0.14))
-            continue
-        pdf.set_x(x)
-        safe_multicell(pdf, w, inch(0.22), safe_text(p, pdf._latin_only))
-        pdf.ln(inch(0.08))
-
-
-def cover_page(pdf: RulesPDF, brand: str, subtitle: str, cover_img: Optional[str], primary_rgb: tuple[int, int, int], accent_rgb: tuple[int, int, int]):
-    pdf._suppress_footer = True
-
-    if cover_img:
-        _full_bleed_image(pdf, cover_img)
-    else:
-        _full_bleed_color(pdf, primary_rgb)
-
-    L = pdf.layout
-    x = L.x(0)
-    y = inch(1.15)
-    w = L.w(7)
-    h = inch(4.15)
-
-    _panel(pdf, x, y, w, h, (10, 12, 16))
-
-    pdf.set_text_color(255, 255, 255)
-    pdf.f_head("B", 46)
-    pdf.set_xy(x + inch(0.38), y + inch(0.58))
-    safe_multicell(pdf, w - inch(0.76), inch(0.42), safe_text(brand, pdf._latin_only))
-
-    pdf.f_body("R", 13)
-    pdf.set_xy(x + inch(0.38), y + inch(2.95))
-    safe_multicell(pdf, w - inch(0.76), inch(0.26), safe_text(subtitle, pdf._latin_only))
-
-    _title_rule(pdf, x + inch(0.38), y + h - inch(0.42), inch(1.55), accent_rgb)
-
-    pdf._suppress_footer = False
-
-
-def how_to_use_page(pdf: RulesPDF, brand: str, date_utc: str, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-
-    page_title(pdf, "How to use this", accent)
-    L = pdf.layout
-    x = L.x(0)
-    w = L.w(8)
-
-    text = (
-        "This is an operational rule set for language.\n"
-        "Use it to write, approve, and police messaging under time pressure.\n\n"
-        "If copy conflicts with this document, the document wins.\n"
-        "If you want to sound nicer, softer, or broader, stop and re-read the bans.\n\n"
-        f"Generated for {brand} on {date_utc}."
-    )
-    pdf.set_text_color(60, 66, 76)
-    pdf.f_body("R", 11)
-    pdf.set_xy(x, pdf.get_y() + inch(0.10))
-    safe_multicell(pdf, w, inch(0.22), safe_text(text, pdf._latin_only))
-
-
-def executive_summary_page(pdf: RulesPDF, items: list[str], accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    page_title(pdf, "Executive summary", accent)
-
-    L = pdf.layout
-    x = L.x(0)
-    w = L.w(9)
-    bullet_list(pdf, items, x, w, inch(0.22), max_items=12)
-
-
-def rules_page(pdf: RulesPDF, title: str, blocks: list[tuple[str, list[str]]], accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    page_title(pdf, title, accent)
-
-    L = pdf.layout
-    x = L.x(0)
-    col_w = L.w(6)
-    y0 = pdf.get_y() + inch(0.10)
-
-    for i, (h, items) in enumerate(blocks):
-        cx = x if i % 2 == 0 else L.x(6)
-        cy = y0 if i < 2 else pdf.get_y() + inch(0.12)
-        pdf.set_xy(cx, cy)
-        pdf.set_text_color(*pdf.c_text)
-        pdf.f_body("B", 12)
-        pdf.cell(col_w, inch(0.22), safe_text(h, pdf._latin_only), ln=1)
-        pdf.ln(inch(0.08))
-        bullet_list(pdf, items, cx, col_w, inch(0.22), max_items=10)
-
-        if i % 2 == 1:
-            pdf.set_y(max(pdf.get_y(), cy) + inch(0.18))
-
-
-def examples_page(pdf: RulesPDF, ex: dict, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    page_title(pdf, "Examples", accent)
-
-    L = pdf.layout
-    x = L.x(0)
-    left_w = L.w(6)
-    right_x = L.x(7)
-    right_w = L.w(5)
-
-    sales = (ex.get("sales_sentence", "") or "").strip()
-    headlines = [s for s in (ex.get("headlines", []) or []) if (s or "").strip()][:8]
-    posts = [s for s in (ex.get("social_posts", []) or []) if (s or "").strip()][:6]
-    ba = (ex.get("before_after", []) or [])[:4]
-
-    pdf.set_xy(x, pdf.get_y() + inch(0.10))
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_body("B", 12)
-    pdf.cell(left_w, inch(0.22), safe_text("Sales sentence", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-    pdf.f_body("R", 11)
-    pdf.set_text_color(35, 40, 50)
-    safe_multicell(pdf, left_w, inch(0.22), safe_text(sales, pdf._latin_only))
-    pdf.ln(inch(0.16))
-
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_body("B", 12)
-    pdf.cell(left_w, inch(0.22), safe_text("Headlines", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-    bullet_list(pdf, headlines, x, left_w, inch(0.22), max_items=8)
-
-    # Right column: posts
-    pdf.set_xy(right_x, pdf.layout.y0() + inch(0.62))
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_body("B", 12)
-    pdf.cell(right_w, inch(0.22), safe_text("Social posts", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-    bullet_list(pdf, posts, right_x, right_w, inch(0.22), max_items=7)
-
-    # Before/after blocks at bottom
-    pdf.set_y(pdf.h - pdf.layout.margin_b - inch(2.55))
-    pdf.set_x(x)
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_body("B", 12)
-    pdf.cell(0, inch(0.22), safe_text("Before and after", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-
-    for item in ba:
-        before = (item.get("before", "") or "").strip()
-        after = (item.get("after", "") or "").strip()
-        rule = (item.get("rule", "") or "").strip()
-
-        line = f"Rule: {rule}" if rule else "Rule: "
-        pdf.f_body("B", 10)
-        pdf.set_text_color(55, 60, 70)
-        safe_multicell(pdf, L.w(12), inch(0.20), safe_text(line, pdf._latin_only))
-
-        pdf.f_body("R", 10)
-        pdf.set_text_color(35, 40, 50)
-        safe_multicell(pdf, L.w(12), inch(0.20), safe_text("Before: " + before, pdf._latin_only))
-        safe_multicell(pdf, L.w(12), inch(0.20), safe_text("After:  " + after, pdf._latin_only))
-        pdf.ln(inch(0.10))
-
-
-def guardrails_page(pdf: RulesPDF, guard: dict, accent: tuple[int, int, int]):
-    fm = [s for s in (guard.get("failure_modes", []) or []) if (s or "").strip()]
-    rf = [s for s in (guard.get("red_flags_in_copy", []) or []) if (s or "").strip()]
-    ck = [s for s in (guard.get("approval_checklist", []) or []) if (s or "").strip()]
-
-    rules_page(
-        pdf,
-        "Guardrails",
-        [
-            ("Failure modes", fm[:10]),
-            ("Red flags in copy", rf[:10]),
-            ("Approval checklist", ck[:10]),
-        ],
-        accent,
-    )
-
-
-def usage_page(pdf: RulesPDF, usage: dict, accent: tuple[int, int, int]):
-    hu = [s for s in (usage.get("how_to_use", []) or []) if (s or "").strip()]
-    wr = [s for s in (usage.get("when_to_regenerate", []) or []) if (s or "").strip()]
-    bw = [s for s in (usage.get("how_to_brief_writers", []) or []) if (s or "").strip()]
-
-    rules_page(
-        pdf,
-        "Usage",
-        [
-            ("How to use", hu[:10]),
-            ("When to regenerate", wr[:10]),
-            ("How to brief writers", bw[:10]),
-        ],
-        accent,
-    )
-
-
-def appendix_page(pdf: RulesPDF, app: dict, accent: tuple[int, int, int]):
-    pdf.add_page(orientation="L")
-    pdf.set_fill_color(255, 255, 255)
-    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
-    page_title(pdf, "Appendix", accent)
-
-    L = pdf.layout
-    x = L.x(0)
-    w = L.w(12)
-
-    colors = (app.get("color_suggestions", []) or [])[:6]
-    typo = (app.get("typography_suggestions", {}) or {})
-
-    pdf.set_xy(x, pdf.get_y() + inch(0.08))
-    pdf.set_text_color(*pdf.c_text)
-    pdf.f_body("B", 12)
-    pdf.cell(0, inch(0.22), safe_text("Color suggestions", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-
-    sw = inch(0.90)
-    sh = inch(0.38)
-    for c in colors:
-        name = (c.get("name", "") or "").strip()
-        hx = (c.get("hex", "") or "").strip()
-        reason = (c.get("reason", "") or "").strip()
-        rgb = _hex_to_rgb(hx, (220, 220, 220))
-
-        pdf.set_fill_color(*rgb)
-        pdf.rect(x, pdf.get_y(), sw, sh, style="F")
-
-        pdf.set_xy(x + sw + inch(0.18), pdf.get_y() - inch(0.02))
-        pdf.f_body("B", 11)
-        pdf.set_text_color(*pdf.c_text)
-        label = f"{name}  {_rgb_to_hex(rgb)}".strip()
-        pdf.cell(0, inch(0.22), safe_text(label, pdf._latin_only), ln=1)
-
-        pdf.f_body("R", 10)
-        pdf.set_text_color(70, 75, 85)
-        pdf.set_x(x + sw + inch(0.18))
-        safe_multicell(pdf, w - sw - inch(0.18), inch(0.20), safe_text(reason, pdf._latin_only))
-        pdf.ln(inch(0.16))
-
-    pdf.ln(inch(0.22))
-    pdf.f_body("B", 12)
-    pdf.set_text_color(*pdf.c_text)
-    pdf.cell(0, inch(0.22), safe_text("Typography suggestions", pdf._latin_only), ln=1)
-    pdf.ln(inch(0.08))
-
-    primary = (typo.get("primary", "") or "").strip()
-    secondary = (typo.get("secondary", "") or "").strip()
-    rationale = (typo.get("rationale", "") or "").strip()
-
-    pdf.f_body("R", 11)
-    pdf.set_text_color(55, 60, 70)
-    safe_multicell(pdf, w, inch(0.22), safe_text(f"Primary: {primary}", pdf._latin_only))
-    safe_multicell(pdf, w, inch(0.22), safe_text(f"Secondary: {secondary}", pdf._latin_only))
-    pdf.ln(inch(0.08))
-    safe_multicell(pdf, w, inch(0.22), safe_text(rationale, pdf._latin_only))
-
-
-def back_cover(pdf: RulesPDF, brand: str, bg_rgb: tuple[int, int, int]):
-    pdf._suppress_footer = True
-    _full_bleed_color(pdf, bg_rgb)
-    L = pdf.layout
-
-    tc = text_color_for_bg(bg_rgb)
-    pdf.set_text_color(*tc)
-    pdf.f_head("B", 18)
-
-    x = L.margin_l
-    y = pdf.h - L.margin_b - inch(0.55)
-    pdf.set_xy(x, y)
-    pdf.cell(0, inch(0.24), safe_text(brand, pdf._latin_only))
-
-    pdf.f_body("R", 11)
-    pdf.set_xy(x, y + inch(0.22))
-    pdf.cell(0, inch(0.22), safe_text("Messaging rules", pdf._latin_only))
-    pdf._suppress_footer = False
-
-
-def render_pdf(data: dict, include_images: bool, unsplash_key: str) -> bytes:
-    meta = data.get("meta", {}) or {}
-    hero = data.get("hero", {}) or {}
-    appendix = data.get("appendix", {}) or {}
-
+    def page_bg(self):
+        self.set_fill_color(*self.c_bg)
+        self.rect(0, 0, self.w, self.h, style="F")
+
+    def title_bar(self, title: str, subtitle: Optional[str] = None):
+        # top title area, consistent
+        x = self.margin_l
+        y = self.margin_t
+        self.set_xy(x, y)
+        self.set_text_color(*self.c_text)
+        self.f_head(22, True)
+        self.cell(0, inch(0.30), safe_text(title, self._latin_only), ln=1)
+        if subtitle:
+            self.set_x(x)
+            self.set_text_color(*self.c_muted)
+            self.f_body(11, False)
+            self.multi_cell(self.live_w, inch(0.22), safe_text(subtitle, self._latin_only))
+        self.ln(inch(0.08))
+        # thin rule
+        self.set_draw_color(*self.c_stroke)
+        self.set_line_width(0.6)
+        self.line(x, self.get_y(), x + self.live_w, self.get_y())
+        self.ln(inch(0.18))
+
+    def ensure_space(self, needed_h: float):
+        if self.get_y() + needed_h > self.h - self.margin_b:
+            self.add_page(orientation="L")
+            self.page_bg()
+
+    def panel(self, title: str, body: str, accent: bool = False):
+        # a clean text block
+        x = self.margin_l
+        w = self.live_w
+        pad = inch(0.18)
+
+        title_h = inch(0.22)
+        # estimate body height by splitting lines after write
+        self.f_body(11, False)
+        lines = self.multi_cell(w - pad * 2, inch(0.22), safe_text(body, self._latin_only), split_only=True)
+        body_h = max(len(lines), 1) * inch(0.22)
+
+        h = pad + title_h + inch(0.10) + body_h + pad
+        self.ensure_space(h)
+
+        y = self.get_y()
+        self.set_fill_color(*self.c_panel)
+        self.rect(x, y, w, h, style="F")
+        self.set_draw_color(*self.c_stroke)
+        self.rect(x, y, w, h)
+
+        if accent:
+            self.set_draw_color(*self.c_accent)
+            self.set_line_width(2.0)
+            self.line(x, y, x, y + h)
+            self.set_line_width(0.6)
+
+        self.set_xy(x + pad, y + pad)
+        self.set_text_color(*self.c_text)
+        self.f_body(11, True)
+        self.cell(w - pad * 2, title_h, safe_text(title, self._latin_only), ln=1)
+        self.ln(inch(0.02))
+
+        self.set_text_color(*self.c_text)
+        self.f_body(11, False)
+        self.multi_cell(w - pad * 2, inch(0.22), safe_text(body, self._latin_only))
+
+        self.set_y(y + h + inch(0.14))
+
+    def rules_block(self, heading: str, rules: list[str], start_index: int = 1):
+        x = self.margin_l
+        w = self.live_w
+
+        self.ensure_space(inch(0.40))
+        self.set_text_color(*self.c_text)
+        self.f_body(12, True)
+        self.cell(0, inch(0.24), safe_text(heading, self._latin_only), ln=1)
+        self.ln(inch(0.06))
+
+        idx = start_index
+        for r in rules:
+            rr = (r or "").strip()
+            if not rr:
+                continue
+            # Rule panel
+            pad = inch(0.16)
+            num_w = inch(0.34)
+
+            self.f_body(11, False)
+            lines = self.multi_cell(w - pad * 2 - num_w, inch(0.22), safe_text(rr, self._latin_only), split_only=True)
+            body_h = max(len(lines), 1) * inch(0.22)
+            h = pad + body_h + pad
+
+            self.ensure_space(h + inch(0.08))
+            y = self.get_y()
+
+            self.set_fill_color(*self.c_panel)
+            self.rect(x, y, w, h, style="F")
+            self.set_draw_color(*self.c_stroke)
+            self.rect(x, y, w, h)
+
+            # Number
+            self.set_xy(x + pad, y + pad - inch(0.02))
+            self.set_text_color(*self.c_accent)
+            self.f_body(11, True)
+            self.cell(num_w, inch(0.22), str(idx), align="L")
+
+            # Text
+            self.set_xy(x + pad + num_w, y + pad)
+            self.set_text_color(*self.c_text)
+            self.f_body(11, False)
+            self.multi_cell(w - pad * 2 - num_w, inch(0.22), safe_text(rr, self._latin_only))
+
+            self.set_y(y + h + inch(0.10))
+            idx += 1
+
+        self.ln(inch(0.08))
+
+    def two_col_panels(self, left_title: str, left_body: str, right_title: str, right_body: str):
+        # two equal panels, stable layout
+        gap = inch(0.20)
+        x = self.margin_l
+        y = self.get_y()
+
+        w = (self.live_w - gap) / 2
+        pad = inch(0.16)
+
+        # estimate heights
+        self.f_body(11, False)
+        l_lines = self.multi_cell(w - pad * 2, inch(0.22), safe_text(left_body, self._latin_only), split_only=True)
+        r_lines = self.multi_cell(w - pad * 2, inch(0.22), safe_text(right_body, self._latin_only), split_only=True)
+        title_h = inch(0.22)
+
+        l_h = pad + title_h + inch(0.08) + max(len(l_lines), 1) * inch(0.22) + pad
+        r_h = pad + title_h + inch(0.08) + max(len(r_lines), 1) * inch(0.22) + pad
+        h = max(l_h, r_h)
+
+        self.ensure_space(h + inch(0.10))
+        y = self.get_y()
+
+        # left panel
+        self.set_fill_color(*self.c_panel)
+        self.rect(x, y, w, h, style="F")
+        self.set_draw_color(*self.c_stroke)
+        self.rect(x, y, w, h)
+        self.set_xy(x + pad, y + pad)
+        self.set_text_color(*self.c_text)
+        self.f_body(11, True)
+        self.cell(w - pad * 2, inch(0.22), safe_text(left_title, self._latin_only), ln=1)
+        self.ln(inch(0.02))
+        self.f_body(11, False)
+        self.multi_cell(w - pad * 2, inch(0.22), safe_text(left_body, self._latin_only))
+
+        # right panel
+        rx = x + w + gap
+        self.set_fill_color(*self.c_panel)
+        self.rect(rx, y, w, h, style="F")
+        self.set_draw_color(*self.c_stroke)
+        self.rect(rx, y, w, h)
+        self.set_xy(rx + pad, y + pad)
+        self.set_text_color(*self.c_text)
+        self.f_body(11, True)
+        self.cell(w - pad * 2, inch(0.22), safe_text(right_title, self._latin_only), ln=1)
+        self.ln(inch(0.02))
+        self.f_body(11, False)
+        self.multi_cell(w - pad * 2, inch(0.22), safe_text(right_body, self._latin_only))
+
+        self.set_y(y + h + inch(0.18))
+
+
+def render_pdf(schema: dict, include_images: bool, unsplash_key: str) -> bytes:
+    meta = schema.get("meta", {}) or {}
+    hero = schema.get("hero", {}) or {}
     brand = (meta.get("brand_name", "") or "").strip() or "Brand"
-    date_utc = (meta.get("date_utc", "") or "").strip() or utc_date_str()
 
-    # Use appendix colors if present, else default.
-    colors = (appendix.get("color_suggestions", []) or [])
-    primary_rgb = (18, 22, 30)
-    accent_rgb = (28, 125, 255)
-    if colors:
-        # Try to pick the first suggestion as primary, second as accent.
-        if len(colors) >= 1:
-            primary_rgb = _hex_to_rgb((colors[0].get("hex", "") or ""), primary_rgb)
-        if len(colors) >= 2:
-            accent_rgb = _hex_to_rgb((colors[1].get("hex", "") or ""), accent_rgb)
-
-    pdf = RulesPDF(orientation="L", unit="mm", format="letter")
-    pdf.set_auto_page_break(auto=True, margin=pdf.layout.margin_b)
+    pdf = BrandPDF(orientation="L", unit="mm", format="letter")
+    pdf.set_auto_page_break(auto=True, margin=pdf.margin_b)
     pdf.set_brand_fonts()
     pdf.brand_name = brand
 
+    # Optional cover photo, but default off
     cover_img = None
-    tmp_files: list[str] = []
-
+    temp_files: list[str] = []
     if include_images:
-        if requests is None:
-            include_images = False
         if not unsplash_key:
             include_images = False
+        elif requests is None:
+            include_images = False
+        else:
+            cover_img = unsplash_one(unsplash_key, query="minimal architecture interior empty", orientation="landscape")
+            if cover_img:
+                temp_files.append(cover_img)
 
-    if include_images:
-        q = cover_query_from_output(data)
-        cover_img = unsplash_cover_image(unsplash_key, q)
-        if cover_img:
-            tmp_files.append(cover_img)
+    # Cover
+    pdf._suppress_footer = True
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    if include_images and cover_img:
+        try:
+            pdf.image(cover_img, x=0, y=0, w=pdf.w, h=pdf.h)
+        except Exception:
+            pass
 
-    subtitle = (hero.get("subtitle", "") or "").strip() or "Operational language and control rules"
-    cover_page(pdf, brand=brand, subtitle=subtitle, cover_img=cover_img, primary_rgb=primary_rgb, accent_rgb=accent_rgb)
+    # subtle overlay to ensure readability, not black box
+    pdf.set_fill_color(255, 255, 255)
+    pdf.set_alpha(0.92) if hasattr(pdf, "set_alpha") else None
+    pdf.rect(pdf.margin_l, inch(1.20), pdf.live_w, inch(3.10), style="F")
+    if hasattr(pdf, "set_alpha"):
+        pdf.set_alpha(1.0)
 
-    how_to_use_page(pdf, brand=brand, date_utc=date_utc, accent=accent_rgb)
+    pdf.set_xy(pdf.margin_l, inch(1.45))
+    pdf.set_text_color(*pdf.c_text)
+    pdf.f_head(40, True)
+    pdf.multi_cell(pdf.live_w, inch(0.45), safe_text(brand, pdf._latin_only))
 
-    exec_sum = (data.get("executive_summary", {}) or {}).get("non_negotiables", []) or []
-    executive_summary_page(pdf, [s for s in exec_sum if (s or "").strip()], accent_rgb)
+    sub = (hero.get("deck_subtitle", "") or "").strip() or "Messaging Rules"
+    pdf.set_xy(pdf.margin_l, inch(3.55))
+    pdf.set_text_color(*pdf.c_muted)
+    pdf.f_body(14, False)
+    pdf.multi_cell(pdf.live_w, inch(0.28), safe_text(sub, pdf._latin_only))
+    pdf._suppress_footer = False
 
-    mr = data.get("messaging_rules", {}) or {}
-    vr = data.get("voice_rules", {}) or {}
-    ex = data.get("examples", {}) or {}
-    guard = data.get("guardrails", {}) or {}
-    usage = data.get("usage", {}) or {}
-
-    rules_page(
-        pdf,
-        "Messaging rules",
-        [
-            ("What we sell", [mr.get("what_we_sell", "")]),
-            ("Doctrine", [s for s in (mr.get("doctrine", []) or []) if (s or "").strip()][:10]),
-            ("Allowed framing patterns", [s for s in (mr.get("allowed_framing_patterns", []) or []) if (s or "").strip()][:10]),
-            ("Forbidden framing patterns", [s for s in (mr.get("forbidden_framing_patterns", []) or []) if (s or "").strip()][:10]),
-            ("Banned words", [s for s in (mr.get("banned_words", []) or []) if (s or "").strip()][:12]),
-            ("Proof standard", [s for s in (mr.get("proof_standard", []) or []) if (s or "").strip()][:10]),
-        ],
-        accent_rgb,
+    # How to use
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("How to use this", "An operational language ruleset for writing, approving, and policing messaging under time pressure.")
+    pdf.panel(
+        "Operating principle",
+        "If copy conflicts with this document, the document wins. If you feel the urge to sound nicer, softer, or broader, stop and re-read the bans.",
+        accent=True,
+    )
+    pdf.panel(
+        "Scope",
+        "Use this for marketing, product pages, sales, social posts, support, and internal briefs. Keep it open while writing. Use it to reject drafts fast.",
+    )
+    pdf.panel(
+        "Regeneration trigger",
+        "Regenerate only when the product meaning changes, the audience changes, or the market consistently misfiles you.",
     )
 
-    rules_page(
-        pdf,
-        "Voice rules",
-        [
-            ("Must sound like", [s for s in (vr.get("must_sound_like", []) or []) if (s or "").strip()][:10]),
-            ("Must not sound like", [s for s in (vr.get("must_not_sound_like", []) or []) if (s or "").strip()][:10]),
-            ("Rules", [s for s in (vr.get("rules", []) or []) if (s or "").strip()][:10]),
-            ("Do say", [s for s in (vr.get("do_say", []) or []) if (s or "").strip()][:10]),
-            ("Do not say", [s for s in (vr.get("do_not_say", []) or []) if (s or "").strip()][:10]),
-        ],
-        accent_rgb,
-    )
+    # Executive summary
+    ex = schema.get("executive_summary", {}) or {}
+    decisions = [d for d in (ex.get("decisions", []) or []) if (d or "").strip()]
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Executive summary", "The decisions that keep messaging consistent.")
+    pdf.rules_block("Decisions", decisions[:10], start_index=1)
 
-    examples_page(pdf, ex, accent_rgb)
-    guardrails_page(pdf, guard, accent_rgb)
-    usage_page(pdf, usage, accent_rgb)
-    appendix_page(pdf, appendix, accent_rgb)
-    back_cover(pdf, brand, primary_rgb)
+    # Messaging rules
+    mr = schema.get("messaging_rules", {}) or {}
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Messaging rules", "What language is allowed, what is forbidden, and what proof is required.")
+
+    pdf.panel("What we sell", (mr.get("what_we_sell", "") or "").strip(), accent=True)
+
+    doctrine = [x for x in (mr.get("doctrine", []) or []) if (x or "").strip()]
+    allowed = [x for x in (mr.get("allowed_framing_patterns", []) or []) if (x or "").strip()]
+    forbidden = [x for x in (mr.get("forbidden_framing_patterns", []) or []) if (x or "").strip()]
+    non_neg = [x for x in (mr.get("non_negotiables", []) or []) if (x or "").strip()]
+
+    if doctrine:
+        pdf.rules_block("Doctrine", doctrine[:10], start_index=1)
+
+    if allowed or forbidden:
+        left_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(allowed[:6])]) if allowed else "None defined."
+        right_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(forbidden[:6])]) if forbidden else "None defined."
+        pdf.two_col_panels("Allowed framing patterns", left_body, "Forbidden framing patterns", right_body)
+
+    banned_words = [x for x in (mr.get("banned_words", []) or []) if (x or "").strip()]
+    proof = (mr.get("proof_standard", "") or "").strip()
+
+    if banned_words or proof:
+        left_body = ", ".join(banned_words[:18]) if banned_words else "None defined."
+        right_body = proof if proof else "Define what evidence you respect and what does not count."
+        pdf.two_col_panels("Banned words", left_body, "Proof standard", right_body)
+
+    if non_neg:
+        pdf.rules_block("Non negotiables", non_neg[:10], start_index=1)
+
+    # Voice rules
+    vr = schema.get("voice_rules", {}) or {}
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Voice rules", "Behavioral constraints that prevent drift.")
+
+    must = [x for x in (vr.get("must_sound_like", []) or []) if (x or "").strip()]
+    must_not = [x for x in (vr.get("must_not_sound_like", []) or []) if (x or "").strip()]
+    rules = [x for x in (vr.get("rules", []) or []) if (x or "").strip()]
+
+    if must or must_not:
+        left_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(must[:6])]) if must else "None defined."
+        right_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(must_not[:6])]) if must_not else "None defined."
+        pdf.two_col_panels("Must sound like", left_body, "Must not sound like", right_body)
+
+    if rules:
+        pdf.rules_block("Rules", rules[:12], start_index=1)
+
+    # Examples
+    exa = schema.get("examples", {}) or {}
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Examples", "Ready patterns and rewrites that demonstrate the rules.")
+
+    sales = (exa.get("sales_sentence", "") or "").strip()
+    if sales:
+        pdf.panel("Sales sentence", sales, accent=True)
+
+    headlines = [x for x in (exa.get("headlines", []) or []) if (x or "").strip()]
+    posts = [x for x in (exa.get("social_posts", []) or []) if (x or "").strip()]
+    if headlines or posts:
+        left_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(headlines[:6])]) if headlines else "None defined."
+        right_body = "\n".join([f"{i+1}. {s}" for i, s in enumerate(posts[:4])]) if posts else "None defined."
+        pdf.two_col_panels("Headlines", left_body, "Social posts", right_body)
+
+    ba = exa.get("before_after", []) or []
+    cleaned_ba = []
+    for item in ba[:6]:
+        rule = (item.get("rule", "") or "").strip()
+        before = (item.get("before", "") or "").strip()
+        after = (item.get("after", "") or "").strip()
+        if rule and before and after:
+            cleaned_ba.append((rule, before, after))
+
+    if cleaned_ba:
+        pdf.ensure_space(inch(0.50))
+        pdf.set_text_color(*pdf.c_text)
+        pdf.f_body(12, True)
+        pdf.cell(0, inch(0.26), safe_text("Before and after", pdf._latin_only), ln=1)
+        pdf.ln(inch(0.10))
+
+        idx = 1
+        for rule, before, after in cleaned_ba:
+            pdf.panel(f"Rewrite {idx}: {rule}", f"Before:\n{before}\n\nAfter:\n{after}", accent=(idx == 1))
+            idx += 1
+
+    # Guardrails
+    gr = schema.get("guardrails", {}) or {}
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Guardrails", "How this gets ruined. What to reject quickly.")
+
+    fm = [x for x in (gr.get("failure_modes", []) or []) if (x or "").strip()]
+    rf = [x for x in (gr.get("red_flags", []) or []) if (x or "").strip()]
+    acl = [x for x in (gr.get("approval_checklist", []) or []) if (x or "").strip()]
+
+    if fm:
+        pdf.rules_block("Failure modes", fm[:10], start_index=1)
+    if rf:
+        pdf.rules_block("Red flags in copy", rf[:10], start_index=1)
+    if acl:
+        pdf.rules_block("Approval checklist", acl[:12], start_index=1)
+
+    # Appendix
+    ap = schema.get("appendix", {}) or {}
+    pdf.add_page(orientation="L")
+    pdf.page_bg()
+    pdf.title_bar("Appendix", "Optional suggestions for color and typography.")
+
+    colors = ap.get("color_suggestions", []) or []
+    if colors:
+        parts = []
+        for c in colors[:4]:
+            name = (c.get("name", "") or "").strip()
+            hx = (c.get("hex", "") or "").strip()
+            reason = (c.get("reason", "") or "").strip()
+            if name and hx and reason:
+                parts.append(f"{name} {_rgb_to_hex(_hex_to_rgb(hx, (0,0,0)))}\n{reason}")
+        if parts:
+            pdf.panel("Color suggestions", "\n\n".join(parts))
+
+    typo = ap.get("typography_suggestions", {}) or {}
+    p = (typo.get("primary", "") or "").strip()
+    s = (typo.get("secondary", "") or "").strip()
+    r = (typo.get("rationale", "") or "").strip()
+    if p or s or r:
+        pdf.panel("Typography suggestions", f"Primary: {p or 'Not specified'}\nSecondary: {s or 'Not specified'}\n\n{r or ''}".strip())
 
     out = pdf.output(dest="S")
     pdf_bytes = bytes(out) if isinstance(out, (bytes, bytearray)) else str(out).encode("latin-1", "replace")
 
-    for p in tmp_files:
+    # Cleanup temp images
+    for pth in temp_files:
         try:
-            os.unlink(p)
+            os.unlink(pth)
         except Exception:
             pass
 
     return pdf_bytes
 
 
-# =========================
+# =========================================================
 # UI helpers
-# =========================
-def render_progress(step_index: int, steps: list[dict]):
-    total = len(steps)
-    current = min(step_index + 1, total)
-    st.progress(min(max(current / max(total, 1), 0.0), 1.0))
-    st.caption(f"Question {current} of {total}")
+# =========================================================
+def render_progress(step_index: int, all_steps: list[dict]):
+    total = len([s for s in all_steps if s["type"] == "question"])
+    seen = 0
+    for i in range(step_index + 1):
+        if all_steps[i]["type"] == "question":
+            seen += 1
+    current_q = max(1, seen) if total else 0
+    st.progress(min(max((step_index + 1) / max(len(all_steps), 1), 0.0), 1.0))
+    st.caption(f"Question {current_q} of {total}")
 
 
 def render_question(q: Question):
@@ -1190,130 +943,99 @@ def render_question(q: Question):
     if q.qtype == "text":
         val = st.text_input(q.title, value=current or "", placeholder=q.placeholder, key=key)
         st.session_state.answers[q.key] = (val or "").strip()
-
-    elif q.qtype == "textarea":
+    else:
         val = st.text_area(q.title, value=current or "", placeholder=q.placeholder, height=170, key=key)
         st.session_state.answers[q.key] = (val or "").strip()
 
-    else:
-        st.session_state.answers[q.key] = current
-
 
 def validate_step(step: dict) -> tuple[bool, str]:
+    if step["type"] != "question":
+        return True, ""
     q = get_question(step["qid"])
     val = st.session_state.answers.get(q.key)
 
     if not q.required:
         return True, ""
 
-    if q.key == "brand_name":
-        if not (val or "").strip():
-            return False, "Brand name is required."
-        return True, ""
+    if q.key == "brand_name" and not (val or "").strip():
+        return False, "Name is required."
 
     if not val or (isinstance(val, str) and not val.strip()):
         return False, "Write a short answer to continue."
+
     return True, ""
 
 
-# =========================
+# =========================================================
 # Views
-# =========================
+# =========================================================
 def landing_view():
-    st.markdown('<div class="eyebrow">Messaging rules generator</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle">Stop bad messaging before it exists</div>', unsafe_allow_html=True)
+    st.markdown('<div class="eyebrow">Operational language</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle">Messaging Rules</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="heroSub">Answer 10 high leverage questions. Get an operational language rule set your team can use under pressure. No moodboards. No stock photo vibes by default.</div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        """
-        <div class="pills">
-          <div class="pill">Operational rules</div>
-          <div class="pill">Derived examples</div>
-          <div class="pill">Guardrails and checklists</div>
-          <div class="pill">Text first PDF</div>
-        </div>
-        """,
+        '<div class="heroSub">A focused interview that turns intent into enforceable language rules. Not a brand book. A system for writing and approving copy under pressure.</div>',
         unsafe_allow_html=True,
     )
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     col1, col2 = st.columns([3, 2], gap="large")
     with col1:
-        st.subheader("What you are buying")
-        st.write("Not a questionnaire PDF.")
-        st.write("A rule system that decides how the company is allowed to speak.")
-        st.write("It outputs constraints, patterns, bans, and examples. It does not mirror your answers.")
-
+        st.subheader("What this creates")
+        st.write("A ruleset that prevents drift, stops vague language, and makes copy review fast.")
+        st.write("It derives constraints, framing patterns, and rewrite examples from your input.")
+        st.write("It is designed to be used, not admired.")
     with col2:
-        st.subheader("Output")
-        st.write("Non negotiables")
-        st.write("Messaging rules and banned language")
-        st.write("Voice rules and before/after rewrites")
-        st.write("Approval checklist for fast posting")
+        st.subheader("Delivery")
+        st.write("Clean PDF ruleset")
+        st.write("Derived examples and rewrite patterns")
+        st.write("Guardrails and approval checklist")
+        st.caption("5 generations per purchase concept.")
 
     with st.expander("Advanced settings", expanded=False):
-        st.session_state.provider = st.selectbox(
-            "LLM provider",
-            options=["gemini", "openai"],
-            index=0 if st.session_state.provider == "gemini" else 1,
-        )
+        st.session_state.provider = st.selectbox("Provider", options=["gemini", "openai"], index=0 if st.session_state.provider == "gemini" else 1)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.session_state.gemini_key = st.text_input("Gemini API key", type="password", value=st.session_state.gemini_key)
+        with c2:
+            st.session_state.openai_key = st.text_input("OpenAI API key", type="password", value=st.session_state.openai_key)
+        st.session_state.openai_model = st.text_input("OpenAI model", value=st.session_state.openai_model)
 
-        if st.session_state.provider == "gemini":
-            st.session_state.gemini_key = st.text_input(
-                "Gemini API key",
-                type="password",
-                value=st.session_state.gemini_key,
-            )
-        else:
-            st.session_state.openai_key = st.text_input(
-                "OpenAI API key",
-                type="password",
-                value=st.session_state.openai_key,
-            )
-            st.session_state.openai_model = st.text_input(
-                "OpenAI model",
-                value=st.session_state.openai_model,
-            )
-
-        st.session_state.include_images = st.checkbox(
-            "Include a single cover image (optional)",
-            value=bool(st.session_state.include_images),
-            help="Default off. If enabled, uses Unsplash for one abstract cover image.",
-        )
+        st.session_state.include_images = st.checkbox("Include images (off by default)", value=st.session_state.include_images)
         if st.session_state.include_images:
-            st.session_state.unsplash_key = st.text_input(
-                "Unsplash access key",
-                type="password",
-                value=st.session_state.unsplash_key,
-            )
-            if requests is None:
-                st.warning("requests is not available, images will be disabled.")
+            st.session_state.unsplash_key = st.text_input("Unsplash access key", type="password", value=st.session_state.unsplash_key)
+            st.caption("Images are optional. If Unsplash is missing, the PDF stays text only.")
 
     st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-    if st.button("Start the 10 question interview"):
+    if st.button("Start interview"):
         st.session_state.step_index = 0
         go("wizard")
     st.markdown("</div>", unsafe_allow_html=True)
 
 
 def wizard_view():
-    steps = wizard_steps()
-    st.session_state.step_index = max(0, min(st.session_state.step_index, len(steps) - 1))
-    step = steps[st.session_state.step_index]
+    all_steps = steps()
+    st.session_state.step_index = max(0, min(st.session_state.step_index, len(all_steps) - 1))
+    step = all_steps[st.session_state.step_index]
 
-    render_progress(st.session_state.step_index, steps)
+    render_progress(st.session_state.step_index, all_steps)
     st.write("")
 
-    q = get_question(step["qid"])
-    st.subheader(q.title)
-    st.caption(q.micro)
-    render_question(q)
+    if step["type"] == "intro":
+        st.subheader("How this works")
+        st.caption("Answer 10 questions. The system produces derived rules, patterns, and examples. It will not copy your answers back to you.")
+        st.write("")
+        st.write("Write like you mean it. Sharp answers create sharp rules.")
+    elif step["type"] == "confirm":
+        go("confirm")
+        return
+    else:
+        q = get_question(step["qid"])
+        st.subheader(q.title)
+        st.caption(q.micro)
+        render_question(q)
 
     st.write("")
     left, right = st.columns([1, 1])
-
     with left:
         st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
         if st.button("Back"):
@@ -1326,13 +1048,13 @@ def wizard_view():
 
     with right:
         st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-        label = "Next"
+        label = "Continue" if step["type"] == "intro" else "Next"
         if st.button(label):
             ok, msg = validate_step(step)
             if not ok:
                 st.error(msg)
             else:
-                if st.session_state.step_index >= len(steps) - 1:
+                if st.session_state.step_index >= len(all_steps) - 2:
                     go("confirm")
                 else:
                     st.session_state.step_index += 1
@@ -1342,15 +1064,15 @@ def wizard_view():
 
 def confirm_view():
     st.markdown('<div class="eyebrow">Confirmation</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Ready to generate</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Generate Messaging Rules</div>', unsafe_allow_html=True)
 
     remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
     st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
 
-    with st.expander("Review inputs", expanded=False):
+    with st.expander("Review your inputs", expanded=False):
         for q in QUESTIONS:
             ans = st.session_state.answers.get(q.key)
-            if ans is None or ans == "":
+            if not ans:
                 continue
             st.markdown(f"**{q.title}**")
             st.write(ans)
@@ -1359,7 +1081,7 @@ def confirm_view():
     col1, col2 = st.columns([1, 1])
     with col1:
         st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
+        if st.button("Back to interview"):
             go("wizard")
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -1372,7 +1094,7 @@ def confirm_view():
 
 def generate_view():
     st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your rule set</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your ruleset</div>', unsafe_allow_html=True)
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
 
     remaining = st.session_state.gen_max - st.session_state.gen_used
@@ -1380,37 +1102,54 @@ def generate_view():
         st.error("No generations remaining.")
         st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
         if st.button("Back"):
-            go("done" if st.session_state.pdf_bytes else "confirm")
+            go("confirm")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
     brand = (st.session_state.answers.get("brand_name", "") or "").strip()
     if not brand:
-        st.error("Brand name is required.")
+        st.error("Name is required.")
         st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
         if st.button("Back"):
             go("wizard")
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
     stage = st.empty()
 
     try:
         with st.spinner("Working..."):
-            stage.write("Defining rules")
-            prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
-
-            provider = make_provider()
-            data, model_used = provider.generate_json(prompt, timeout_s=45)
-
-            stage.write("Building PDF")
+            stage.write("Deriving rules")
             time.sleep(0.05)
 
-            include_images = bool(st.session_state.include_images)
-            unsplash_key = (st.session_state.unsplash_key or "").strip()
-            pdf_bytes = render_pdf(data, include_images=include_images, unsplash_key=unsplash_key)
+            if st.session_state.provider == "openai":
+                if not (st.session_state.openai_key or "").strip():
+                    raise RuntimeError("Missing OpenAI API key.")
+                schema, model_used = generate_with_openai(
+                    prompt,
+                    api_key=(st.session_state.openai_key or "").strip(),
+                    model=(st.session_state.openai_model or "gpt-4.1-mini").strip(),
+                )
+            else:
+                if not (st.session_state.gemini_key or "").strip():
+                    raise RuntimeError("Missing Gemini API key.")
+                schema, model_used = generate_with_gemini(
+                    prompt,
+                    api_key=(st.session_state.gemini_key or "").strip(),
+                    timeout_s=35,
+                )
 
-        st.session_state.last_json = data
+            stage.write("Rendering PDF")
+            time.sleep(0.05)
+
+            pdf_bytes = render_pdf(
+                schema,
+                include_images=bool(st.session_state.include_images),
+                unsplash_key=(st.session_state.unsplash_key or "").strip(),
+            )
+
+        st.session_state.last_json = schema
         st.session_state.model_used = model_used
         st.session_state.pdf_bytes = pdf_bytes
         st.session_state.gen_used += 1
@@ -1427,7 +1166,7 @@ def generate_view():
 
 def done_view():
     st.markdown('<div class="eyebrow">Ready</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your PDF</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your ruleset</div>', unsafe_allow_html=True)
 
     remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
     st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
