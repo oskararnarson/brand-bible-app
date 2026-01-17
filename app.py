@@ -7,17 +7,26 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import concurrent.futures
 import streamlit as st
-import google.generativeai as genai
 from fpdf import FPDF
 
 try:
     import requests
 except Exception:
     requests = None
+
+try:
+    import google.generativeai as genai
+except Exception:
+    genai = None
+
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = None
 
 
 st.set_page_config(page_title="Brand Bible Generator", layout="wide", page_icon="◼")
@@ -37,21 +46,32 @@ def ss_init():
         "view": "landing",
         "step_index": 0,
         "answers": {},
-        "api_key": "",
-        "unsplash_key": "",
         "gen_used": 0,
         "gen_max": 5,
         "last_json": None,
         "pdf_bytes": None,
         "model_used": "",
         "error": "",
+
+        # Provider
+        "provider": "gemini",   # gemini or openai
+        "gemini_key": "",
+        "openai_key": "",
+        "openai_model": "gpt-4.1-mini",
+
+        # Images
+        "include_images": False,
+        "unsplash_key": "",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
-    if not st.session_state.api_key:
-        st.session_state.api_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
+    if not st.session_state.gemini_key:
+        st.session_state.gemini_key = (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
+
+    if not st.session_state.openai_key:
+        st.session_state.openai_key = (st.secrets.get("OPENAI_API_KEY", "") or "").strip()
 
     if not st.session_state.unsplash_key:
         st.session_state.unsplash_key = (st.secrets.get("UNSPLASH_ACCESS_KEY", "") or "").strip()
@@ -63,13 +83,23 @@ def go(view: str):
 
 
 def reset_app(keep_keys: bool = True):
-    api_key = st.session_state.api_key
+    gemini_key = st.session_state.gemini_key
+    openai_key = st.session_state.openai_key
+    openai_model = st.session_state.openai_model
     unsplash_key = st.session_state.unsplash_key
+    provider = st.session_state.provider
+    include_images = st.session_state.include_images
+
     st.session_state.clear()
     ss_init()
+
     if keep_keys:
-        st.session_state.api_key = api_key
+        st.session_state.gemini_key = gemini_key
+        st.session_state.openai_key = openai_key
+        st.session_state.openai_model = openai_model
         st.session_state.unsplash_key = unsplash_key
+        st.session_state.provider = provider
+        st.session_state.include_images = include_images
 
 
 # =========================
@@ -317,47 +347,10 @@ def get_section(sid: str) -> Section:
 
 
 # =========================
-# Gemini
+# Shared JSON helpers
 # =========================
-PREFERRED_MODEL_CONTAINS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0",
-    "gemini",
-]
-
-
 def utc_date_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def list_generation_models() -> list[str]:
-    out: list[str] = []
-    try:
-        for m in genai.list_models():
-            name = getattr(m, "name", "") or ""
-            methods = getattr(m, "supported_generation_methods", None) or []
-            if name and "generateContent" in methods:
-                out.append(name)
-    except Exception:
-        return []
-    return out
-
-
-def choose_models_to_try() -> list[str]:
-    avail = list_generation_models()
-    if not avail:
-        return PREFERRED_MODEL_CONTAINS[:]
-    chosen: list[str] = []
-    for p in PREFERRED_MODEL_CONTAINS:
-        for n in avail:
-            if p in n and n not in chosen:
-                chosen.append(n)
-    for n in avail:
-        if n not in chosen:
-            chosen.append(n)
-    return chosen
 
 
 def extract_json_object(text: str) -> str:
@@ -368,6 +361,31 @@ def extract_json_object(text: str) -> str:
     if not m:
         raise ValueError("Model did not return JSON.")
     return m.group(0).strip()
+
+
+def validate_schema_keys(data: dict) -> None:
+    required = [
+        "meta", "colors", "typography", "hero",
+        "executive_summary", "positioning", "audience",
+        "messaging", "voice", "visual_direction",
+        "guardrails", "usage"
+    ]
+    missing = [k for k in required if k not in data]
+    if missing:
+        raise ValueError(f"JSON missing required keys: {missing}")
+
+
+# =========================
+# Prompt and schema (Decision Spec oriented)
+# =========================
+FONT_POOL = [
+    "Inter", "Sora", "Manrope", "DM Sans", "Plus Jakarta Sans", "Space Grotesk",
+    "IBM Plex Sans", "Work Sans", "Outfit", "Urbanist", "Public Sans", "Rubik",
+    "Source Sans 3", "Noto Sans", "Noto Serif", "Lora", "Merriweather", "Libre Baskerville",
+    "Fraunces", "Cormorant Garamond", "Spectral", "Crimson Pro", "EB Garamond",
+    "Montserrat", "Raleway", "Karla", "Figtree", "Nunito Sans", "Hanken Grotesk",
+    "Archivo", "Barlow", "Overpass", "Mulish", "Cabin", "Titillium Web"
+]
 
 
 def build_prompt(answers: dict, version_str: str) -> str:
@@ -392,26 +410,24 @@ def build_prompt(answers: dict, version_str: str) -> str:
         '  "audience": { "core_customer": "", "core_tension": "", "primary_objection": "", "trust_trigger": "" },\n'
         '  "messaging": { "core_message": "", "key_messages": [ { "message": "", "proof": "" } ] },\n'
         '  "voice": { "principles": [""], "do_say": [""], "do_not_say": [""], "examples": { "before": "", "after": "" } },\n'
-        '  "visual_direction": { "intent": "", "feels_like": [""], "never_feels_like": [""], "imagery_keywords": [""] },\n'
+        '  "visual_direction": {\n'
+        '     "intent": "",\n'
+        '     "feels_like": [""],\n'
+        '     "never_feels_like": [""],\n'
+        '     "hard_bans": [""],\n'
+        '     "acceptance_test": [""]\n'
+        "  },\n"
         '  "guardrails": { "failure_modes": [""] },\n'
         '  "usage": { "how_to_use": [""] }\n'
         "}\n"
     )
 
-    # Larger pool for strategy output. PDF will still embed from fontpack.
-    font_pool = [
-        "Inter", "Sora", "Manrope", "DM Sans", "Plus Jakarta Sans", "Space Grotesk",
-        "IBM Plex Sans", "Work Sans", "Outfit", "Urbanist", "Public Sans", "Rubik",
-        "Source Sans 3", "Noto Sans", "Noto Serif", "Lora", "Merriweather", "Libre Baskerville",
-        "Fraunces", "Cormorant Garamond", "Spectral", "Crimson Pro", "EB Garamond",
-        "Montserrat", "Raleway", "Karla", "Figtree", "Nunito Sans", "Hanken Grotesk",
-        "Archivo", "Barlow", "Overpass", "Mulish", "Cabin", "Titillium Web"
-    ]
-
     prompt = (
-        "You are a senior brand strategist and design director.\n"
-        "You decide. You do not describe.\n"
-        "Be opinionated, concise, and practical.\n"
+        "You are a senior brand strategist.\n"
+        "Write a Decision Spec, not a brand book.\n"
+        "Decide. Do not decorate.\n"
+        "Prefer rules, constraints, and tests.\n"
+        "Be concise and practical.\n"
         "Avoid cliches and startup hype.\n"
         "Return ONLY valid JSON that matches the schema exactly.\n"
         "No markdown. No commentary. No extra keys.\n\n"
@@ -422,13 +438,13 @@ def build_prompt(answers: dict, version_str: str) -> str:
         "TYPOGRAPHY RULES\n"
         "Pick fonts that fit the brand.\n"
         "Choose from this pool when possible:\n"
-        f"{', '.join(font_pool)}\n"
+        f"{', '.join(FONT_POOL)}\n"
         "Explain the choice briefly in typography.rationale.\n"
         "Define primary_use and secondary_use.\n\n"
         "HERO RULES\n"
         "hero.headline is 6 to 12 words.\n"
         "hero.subhead is 1 sentence.\n"
-        "hero.deck_subtitle must be short and premium.\n\n"
+        "hero.deck_subtitle must be short.\n\n"
         "JSON SCHEMA\n"
         f"{schema}\n"
         "INPUT\n"
@@ -442,9 +458,55 @@ def build_prompt(answers: dict, version_str: str) -> str:
     return prompt
 
 
-def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
-    models_to_try = choose_models_to_try()
+# =========================
+# Providers
+# =========================
+PREFERRED_GEMINI_MODEL_CONTAINS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "gemini",
+]
+
+
+def list_generation_models_gemini() -> list[str]:
+    if genai is None:
+        return []
+    out: list[str] = []
+    try:
+        for m in genai.list_models():
+            name = getattr(m, "name", "") or ""
+            methods = getattr(m, "supported_generation_methods", None) or []
+            if name and "generateContent" in methods:
+                out.append(name)
+    except Exception:
+        return []
+    return out
+
+
+def choose_models_to_try_gemini() -> list[str]:
+    avail = list_generation_models_gemini()
+    if not avail:
+        return PREFERRED_GEMINI_MODEL_CONTAINS[:]
+    chosen: list[str] = []
+    for p in PREFERRED_GEMINI_MODEL_CONTAINS:
+        for n in avail:
+            if p in n and n not in chosen:
+                chosen.append(n)
+    for n in avail:
+        if n not in chosen:
+            chosen.append(n)
+    return chosen
+
+
+def generate_schema_gemini(prompt: str, api_key: str, timeout_s: int = 35) -> Tuple[dict, str]:
+    if genai is None:
+        raise RuntimeError("google.generativeai is not installed.")
+    genai.configure(api_key=api_key)
+
+    models_to_try = choose_models_to_try_gemini()
     last_err: Exception | None = None
+
     for model_name in models_to_try:
         try:
             model = genai.GenerativeModel(model_name)
@@ -453,22 +515,47 @@ def generate_schema(prompt: str, timeout_s: int = 35) -> tuple[dict, str]:
                 resp = fut.result(timeout=timeout_s)
             raw = (getattr(resp, "text", "") or "").strip()
             data = json.loads(extract_json_object(raw))
-            required = ["meta", "colors", "typography", "hero", "executive_summary", "positioning",
-                        "audience", "messaging", "voice", "visual_direction", "guardrails", "usage"]
-            for k in required:
-                if k not in data:
-                    raise ValueError("JSON missing required keys.")
+            validate_schema_keys(data)
             return data, model_name
         except concurrent.futures.TimeoutError:
             last_err = RuntimeError(f"Timeout after {timeout_s} seconds.")
         except Exception as e:
             last_err = e
-    raise RuntimeError(f"Generation failed: {last_err}")
+
+    raise RuntimeError(f"Gemini generation failed: {last_err}")
+
+
+def generate_schema_openai(prompt: str, api_key: str, model: str, timeout_s: int = 35) -> Tuple[dict, str]:
+    if OpenAI is None:
+        raise RuntimeError("openai is not installed. Run: pip install openai")
+    client = OpenAI(api_key=api_key)
+
+    resp = client.responses.create(
+        model=model,
+        input=prompt,
+        temperature=0.2,
+        max_output_tokens=2000,
+    )
+    raw = (resp.output_text or "").strip()
+    data = json.loads(extract_json_object(raw))
+    validate_schema_keys(data)
+    return data, model
+
+
+def generate_schema(prompt: str, provider: str, gemini_key: str, openai_key: str, openai_model: str, timeout_s: int = 35) -> Tuple[dict, str]:
+    provider = (provider or "").strip().lower()
+    if provider == "openai":
+        if not openai_key:
+            raise RuntimeError("Missing OpenAI API key.")
+        return generate_schema_openai(prompt, openai_key, openai_model, timeout_s=timeout_s)
+
+    if not gemini_key:
+        raise RuntimeError("Missing Gemini API key.")
+    return generate_schema_gemini(prompt, gemini_key, timeout_s=timeout_s)
 
 
 # =========================
-# Unsplash images
-# No caching. Every run fetches new images.
+# Unsplash images (optional)
 # =========================
 UNSPLASH_API = "https://api.unsplash.com"
 
@@ -508,6 +595,7 @@ def unsplash_random_images(access_key: str, queries: list[str], count: int, orie
         return []
     if not queries:
         return []
+
     rng = random.Random(time.time_ns())
     out: list[str] = []
     tried = 0
@@ -543,6 +631,7 @@ def unsplash_random_images(access_key: str, queries: list[str], count: int, orie
             out.append(p)
         except Exception:
             continue
+
     return out
 
 
@@ -572,39 +661,38 @@ def build_image_queries(answers: dict, schema: dict) -> list[str]:
         "industrial lab clean",
         "black metal surface texture",
         "steel structure detail",
+        "empty interior no people",
+        "architecture no people",
     ]
 
     if place:
         base.append(f"{place.lower()} interior minimal")
         base.append(f"{place.lower()} detail minimal")
-    if impression:
-        if impression.lower() == "controlled":
-            base.append("controlled environment interior")
-            base.append("orderly industrial space")
-    if energy:
-        if energy.lower() in ["sharp", "bold", "clinical"]:
-            base.append("high contrast minimal architecture")
-            base.append("monochrome industrial detail")
-    if animal:
-        if animal.lower() in ["panther", "hawk", "falcon"]:
-            base.append("dark minimal architecture")
-            base.append("shadow geometry minimal")
 
-    for k in kws[:12]:
+    if impression and impression.lower() == "controlled":
+        base.append("controlled environment interior")
+        base.append("orderly industrial space")
+
+    if energy and energy.lower() in ["sharp", "bold", "clinical"]:
+        base.append("high contrast minimal architecture")
+        base.append("monochrome industrial detail")
+
+    if animal and animal.lower() in ["panther", "hawk", "falcon"]:
+        base.append("dark minimal architecture")
+        base.append("shadow geometry minimal")
+
+    for k in kws[:10]:
         base.append(k)
 
-    # Hard negative style steering with positives only
-    if "no faces" in never or "faces" in never or "portrait" in never:
-        base.append("empty interior no people")
-        base.append("architecture no people")
     if "nature" in never:
         base.append("industrial interior not nature")
     if "neon" in never or "cyberpunk" in never:
         base.append("clean minimal not neon")
     if "meditation" in never or "yoga" in never:
         base.append("technical environment not wellness")
+    if "faces" in never or "portrait" in never or "people" in never:
+        base.append("no people")
 
-    # De dupe and normalize
     out: list[str] = []
     seen = set()
     for q in base:
@@ -871,7 +959,7 @@ def intro_page(pdf: BrandPDF, brand: str, date_utc: str, image_path: Optional[st
     t = (
         "This is a decision system.\n"
         "Use it to keep voice, visuals, and messaging consistent.\n\n"
-        "Use this when writing copy, selecting imagery, designing pages, or approving work.\n"
+        "Use this when writing copy, selecting visuals, designing pages, or approving work.\n"
         "If a decision conflicts with this document, the document wins.\n\n"
         f"Generated for {brand} on {date_utc}."
     )
@@ -929,7 +1017,6 @@ def section_photo_opener(pdf: BrandPDF, title: str, subtitle: str, image_path: O
     else:
         _full_bleed_color(pdf, fallback_rgb)
 
-    # Overlay panel
     L = pdf.layout
     x = L.x(0)
     y = inch(2.05)
@@ -988,7 +1075,7 @@ def body_paras(pdf: BrandPDF, text: str, x: float, w: float):
         pdf.ln(inch(0.08))
 
 
-def split_two_col(pdf: BrandPDF, left_title: str, left_items: list[str], right_title: str, right_items: list[str], accent: tuple[int, int, int]):
+def split_two_col(pdf: BrandPDF, left_title: str, left_items: list[str], right_title: str, right_items: list[str]):
     L = pdf.layout
     x1 = L.x(0)
     x2 = L.x(6)
@@ -1046,7 +1133,6 @@ def messaging_page(pdf: BrandPDF, msg: dict, image_path: Optional[str], accent: 
     pdf.ln(inch(0.08))
     bullet_list(pdf, key_msgs, left_x, left_w, inch(0.22), max_items=7)
 
-    # Proof block to the right, aligned
     py = y_after + inch(0.18)
     pdf.set_xy(right_x, py)
     pdf.f_body("B", 12)
@@ -1055,7 +1141,6 @@ def messaging_page(pdf: BrandPDF, msg: dict, image_path: Optional[str], accent: 
     pdf.ln(inch(0.08))
     bullet_list(pdf, proofs, right_x, right_w, inch(0.22), max_items=7)
 
-    # Image strip below, full width, keeps page from feeling empty
     img_y = max(pdf.get_y(), py + inch(2.10)) + inch(0.25)
     img_h = pdf.h - img_y - pdf.layout.margin_b - inch(0.20)
 
@@ -1079,13 +1164,11 @@ def voice_rules_page(pdf: BrandPDF, voice: dict, accent: tuple[int, int, int]):
     content_page_base(pdf, "Voice rules", accent)
     L = pdf.layout
     x = L.x(0)
-    w = L.w(12)
 
     principles = [x for x in (voice.get("principles", []) or []) if (x or "").strip()]
     do_say = [x for x in (voice.get("do_say", []) or []) if (x or "").strip()]
     do_not = [x for x in (voice.get("do_not_say", []) or []) if (x or "").strip()]
 
-    # Principles row
     pdf.set_text_color(*pdf.c_text)
     pdf.f_body("B", 12)
     pdf.set_xy(x, pdf.get_y() + inch(0.12))
@@ -1093,9 +1176,8 @@ def voice_rules_page(pdf: BrandPDF, voice: dict, accent: tuple[int, int, int]):
     pdf.ln(inch(0.06))
     bullet_list(pdf, principles, x, L.w(6), inch(0.22), max_items=7)
 
-    # Do say / Do not say
     pdf.ln(inch(0.12))
-    split_two_col(pdf, "Do say", do_say, "Do not say", do_not, accent)
+    split_two_col(pdf, "Do say", do_say, "Do not say", do_not)
 
 
 def voice_example_page(pdf: BrandPDF, before: str, after: str, image_path: Optional[str], accent: tuple[int, int, int], fallback_rgb: tuple[int, int, int]):
@@ -1107,7 +1189,6 @@ def voice_example_page(pdf: BrandPDF, before: str, after: str, image_path: Optio
     right_w = L.w(5)
     top = pdf.get_y()
 
-    # Left block: before / after, no extra rules
     pdf.set_xy(left_x, top + inch(0.10))
     pdf.f_body("B", 12)
     pdf.set_text_color(*pdf.c_text)
@@ -1122,7 +1203,6 @@ def voice_example_page(pdf: BrandPDF, before: str, after: str, image_path: Optio
     pdf.ln(inch(0.06))
     bullet_list(pdf, [after], left_x, left_w, inch(0.22), max_items=2)
 
-    # Right block: image
     img_y = top + inch(0.10)
     img_h = pdf.h - img_y - L.margin_b - inch(0.20)
     if image_path:
@@ -1141,7 +1221,6 @@ def voice_example_page(pdf: BrandPDF, before: str, after: str, image_path: Optio
 
 
 def visual_direction_pages(pdf: BrandPDF, vis: dict, mood_paths: list[str], accent: tuple[int, int, int], fallback_rgb: tuple[int, int, int]):
-    # Moodboard page
     content_page_base(pdf, "Moodboard", accent)
     L = pdf.layout
     grid_top = pdf.get_y() + inch(0.10)
@@ -1174,18 +1253,23 @@ def visual_direction_pages(pdf: BrandPDF, vis: dict, mood_paths: list[str], acce
             pdf.set_line_width(1.0)
             pdf.rect(x, y, cell_w, cell_h)
 
-    # Visual direction text page
     content_page_base(pdf, "Visual direction", accent)
     intent = (vis.get("intent", "") or "").strip()
     feels = [x for x in (vis.get("feels_like", []) or []) if (x or "").strip()]
     never = [x for x in (vis.get("never_feels_like", []) or []) if (x or "").strip()]
+    hard_bans = [x for x in (vis.get("hard_bans", []) or []) if (x or "").strip()]
+    tests = [x for x in (vis.get("acceptance_test", []) or []) if (x or "").strip()]
 
     x = L.x(0)
     w = L.w(7)
     if intent:
         body_paras(pdf, intent, x, w)
         pdf.ln(inch(0.10))
-    split_two_col(pdf, "Feels like", feels[:9], "Never feels like", never[:9], accent)
+
+    split_two_col(pdf, "Feels like", feels[:9], "Never feels like", never[:9])
+
+    pdf.ln(inch(0.18))
+    split_two_col(pdf, "Hard bans", hard_bans[:9], "Acceptance test", tests[:9])
 
 
 def color_palette_page(pdf: BrandPDF, colors: dict, accent: tuple[int, int, int]):
@@ -1262,7 +1346,6 @@ def typography_page(pdf: BrandPDF, typography: dict, accent: tuple[int, int, int
         pdf.set_text_color(55, 60, 70)
         safe_multicell(pdf, w, inch(0.22), safe_text(rat, pdf._latin_only))
 
-    # Sample hierarchy
     pdf.ln(inch(0.38))
     pdf.f_head("B", 26)
     pdf.set_text_color(*pdf.c_text)
@@ -1271,7 +1354,7 @@ def typography_page(pdf: BrandPDF, typography: dict, accent: tuple[int, int, int
 
     pdf.f_body("R", 12)
     pdf.set_text_color(35, 40, 50)
-    safe_multicell(pdf, L.w(7), inch(0.24), safe_text("Body text example. Short sentences. Clear meaning. No fluff. This should feel like the brand.", pdf._latin_only))
+    safe_multicell(pdf, L.w(7), inch(0.24), safe_text("Body text example. Short sentences. Clear meaning. No fluff.", pdf._latin_only))
 
 
 def executive_summary_page(pdf: BrandPDF, decisions: list[str], accent: tuple[int, int, int]):
@@ -1279,7 +1362,7 @@ def executive_summary_page(pdf: BrandPDF, decisions: list[str], accent: tuple[in
     L = pdf.layout
     x = L.x(0)
     w = L.w(8)
-    bullet_list(pdf, [d for d in decisions if (d or "").strip()], x, w, inch(0.22), max_items=10)
+    bullet_list(pdf, [d for d in decisions if (d or "").strip()], x, w, inch(0.22), max_items=12)
 
 
 def positioning_page(pdf: BrandPDF, pos: dict, accent: tuple[int, int, int]):
@@ -1301,7 +1384,7 @@ def positioning_page(pdf: BrandPDF, pos: dict, accent: tuple[int, int, int]):
     if anti:
         right.append(anti)
 
-    split_two_col(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, generic, and polite."], accent)
+    split_two_col(pdf, "What we are", left or ["Clear category ownership."], "What we are not", right or ["Vague, generic, and polite."])
 
 
 def audience_page(pdf: BrandPDF, aud: dict, accent: tuple[int, int, int]):
@@ -1315,7 +1398,7 @@ def audience_page(pdf: BrandPDF, aud: dict, accent: tuple[int, int, int]):
         (aud.get("primary_objection", "") or "").strip(),
         (aud.get("trust_trigger", "") or "").strip(),
     ]
-    bullet_list(pdf, [i for i in items if i], x, w, inch(0.22), max_items=10)
+    bullet_list(pdf, [i for i in items if i], x, w, inch(0.22), max_items=12)
 
 
 def guardrails_page(pdf: BrandPDF, guard: dict, accent: tuple[int, int, int]):
@@ -1323,7 +1406,7 @@ def guardrails_page(pdf: BrandPDF, guard: dict, accent: tuple[int, int, int]):
     L = pdf.layout
     x = L.x(0)
     w = L.w(8)
-    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], x, w, inch(0.22), max_items=12)
+    bullet_list(pdf, [x for x in (guard.get("failure_modes", []) or []) if (x or "").strip()], x, w, inch(0.22), max_items=14)
 
 
 def usage_page(pdf: BrandPDF, usage: dict, accent: tuple[int, int, int]):
@@ -1331,7 +1414,7 @@ def usage_page(pdf: BrandPDF, usage: dict, accent: tuple[int, int, int]):
     L = pdf.layout
     x = L.x(0)
     w = L.w(9)
-    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], x, w, inch(0.22), max_items=14)
+    bullet_list(pdf, [x for x in (usage.get("how_to_use", []) or []) if (x or "").strip()], x, w, inch(0.22), max_items=16)
 
 
 def back_cover(pdf: BrandPDF, brand: str, bg_rgb: tuple[int, int, int]):
@@ -1354,7 +1437,7 @@ def back_cover(pdf: BrandPDF, brand: str, bg_rgb: tuple[int, int, int]):
     pdf._suppress_footer = False
 
 
-def render_pdf(schema: dict, answers: dict, unsplash_key: str) -> bytes:
+def render_pdf(schema: dict, answers: dict, include_images: bool, unsplash_key: str) -> bytes:
     meta = schema.get("meta", {}) or {}
     colors = schema.get("colors", {}) or {}
     hero = schema.get("hero", {}) or {}
@@ -1371,50 +1454,54 @@ def render_pdf(schema: dict, answers: dict, unsplash_key: str) -> bytes:
     pdf.set_brand_fonts()
     pdf.brand_name = brand
 
-    # Fetch images fresh each run
-    queries = build_image_queries(answers, schema)
-    photos = unsplash_random_images(unsplash_key, queries, count=12, orientation="landscape")
+    photos: list[str] = []
+    if include_images:
+        if not unsplash_key:
+            raise RuntimeError("Images enabled but missing Unsplash key.")
+        if requests is None:
+            raise RuntimeError("Images enabled but requests is missing.")
+        queries = build_image_queries(answers, schema)
+        photos = unsplash_random_images(unsplash_key, queries, count=12, orientation="landscape")
 
-    # Map to usage
-    hero_photo = photos[0] if len(photos) > 0 else None
-    intro_photo = photos[1] if len(photos) > 1 else None
-    opener_pos = photos[2] if len(photos) > 2 else None
-    opener_aud = photos[3] if len(photos) > 3 else None
-    opener_msg = photos[4] if len(photos) > 4 else None
-    opener_voice = photos[5] if len(photos) > 5 else None
-    voice_example_img = photos[6] if len(photos) > 6 else None
-    opener_vis = photos[7] if len(photos) > 7 else None
+    # Fixed mapping so sections do not reuse the same opener image
+    def p(i: int) -> Optional[str]:
+        return photos[i] if i < len(photos) else None
+
+    hero_photo = p(0)
+    intro_photo = p(1)
+
+    opener_exec = p(2)
+    opener_pos = p(3)
+    opener_aud = p(4)
+    opener_msg = p(5)
+    opener_voice = p(6)
+    opener_vis = p(7)
+    opener_guard = p(8)
+    opener_use = p(9)
+    voice_example_img = p(10)
     mood = photos[6:12] if len(photos) >= 12 else photos[:6]
 
-    deck_sub = (hero.get("deck_subtitle", "") or "").strip() or "Brand system. A practical guide to consistency."
+    deck_sub = (hero.get("deck_subtitle", "") or "").strip() or "Brand system. A decision spec for consistency."
 
-    # Cover
     cover_page(pdf, brand=brand, subtitle=deck_sub, photo_path=hero_photo, fallback_rgb=primary)
 
-    # Intro
     intro_page(pdf, brand=brand, date_utc=utc_date_str(), image_path=intro_photo, accent=accent, bg_rgb=background)
 
-    # Contents
     contents_page(pdf, accent=accent)
 
-    # Executive summary
-    section_photo_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", opener_pos, accent, primary)
+    section_photo_opener(pdf, "Executive summary", "The decisions that keep the brand consistent.", opener_exec, accent, primary)
     decisions = ((schema.get("executive_summary", {}) or {}).get("decisions", []) or [])
     executive_summary_page(pdf, decisions, accent)
 
-    # Positioning
     section_photo_opener(pdf, "Positioning", "Where you stand, and what you refuse to be.", opener_pos, accent, primary)
     positioning_page(pdf, schema.get("positioning", {}) or {}, accent)
 
-    # Audience
     section_photo_opener(pdf, "Audience", "One real person. One real tension.", opener_aud, accent, primary)
     audience_page(pdf, schema.get("audience", {}) or {}, accent)
 
-    # Messaging
     section_photo_opener(pdf, "Messaging", "Repeatable messages, backed by proof.", opener_msg, accent, primary)
     messaging_page(pdf, schema.get("messaging", {}) or {}, opener_msg, accent, background)
 
-    # Voice
     section_photo_opener(pdf, "Voice", "Rules that stop bad copy before it exists.", opener_voice, accent, primary)
     voice = schema.get("voice", {}) or {}
     voice_rules_page(pdf, voice, accent)
@@ -1424,31 +1511,26 @@ def render_pdf(schema: dict, answers: dict, unsplash_key: str) -> bytes:
     if before and after:
         voice_example_page(pdf, before, after, voice_example_img, accent, background)
 
-    # Visual direction and moodboard
-    section_photo_opener(pdf, "Visual direction", "Taste, constraints, and imagery posture.", opener_vis, accent, primary)
+    section_photo_opener(pdf, "Visual direction", "Taste, constraints, and posture.", opener_vis, accent, primary)
     visual_direction_pages(pdf, schema.get("visual_direction", {}) or {}, mood, accent, background)
 
-    # Color palette then typography, separate
     color_palette_page(pdf, colors, accent)
     typography_page(pdf, typo, accent)
 
-    # Guardrails and usage
-    section_photo_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", opener_pos, accent, primary)
+    section_photo_opener(pdf, "Guardrails", "How the brand gets ruined. Avoid these.", opener_guard, accent, primary)
     guardrails_page(pdf, schema.get("guardrails", {}) or {}, accent)
 
-    section_photo_opener(pdf, "How to use this", "Open this when the team starts to drift.", opener_aud, accent, primary)
+    section_photo_opener(pdf, "How to use this", "Open this when the team starts to drift.", opener_use, accent, primary)
     usage_page(pdf, schema.get("usage", {}) or {}, accent)
 
-    # Back cover minimal
     back_cover(pdf, brand, primary)
 
     out = pdf.output(dest="S")
     pdf_bytes = bytes(out) if isinstance(out, (bytes, bytearray)) else str(out).encode("latin-1", "replace")
 
-    # Clean up temp images
-    for p in photos:
+    for fp in photos:
         try:
-            os.unlink(p)
+            os.unlink(fp)
         except Exception:
             pass
 
@@ -1535,16 +1617,16 @@ def landing_view():
     st.markdown('<div class="eyebrow">Brand system generator</div>', unsafe_allow_html=True)
     st.markdown('<div class="heroTitle">Build a brand that stays consistent when you are not in the room</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="heroSub">A guided brand interview that turns strategy, voice, and visual direction into a premium landscape PDF deck with real design rhythm.</div>',
+        '<div class="heroSub">A guided brand interview that turns strategy, voice, and constraints into a landscape PDF deck.</div>',
         unsafe_allow_html=True,
     )
     st.markdown(
         """
         <div class="pills">
           <div class="pill">Landscape deck</div>
-          <div class="pill">Unsplash API imagery</div>
-          <div class="pill">Color and typography</div>
-          <div class="pill">Rules, not fluff</div>
+          <div class="pill">Decision spec</div>
+          <div class="pill">Rules and constraints</div>
+          <div class="pill">Images optional</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1555,16 +1637,33 @@ def landing_view():
     with col1:
         st.subheader("Why this matters")
         st.write("Most brands fail because nothing is defined.")
-        st.write("A brand bible is not a document. It is a decision system.")
-        st.write("With a real system, teams decide faster, argue less, and stay consistent without trying.")
+        st.write("A brand system is a decision spec.")
+        st.write("With a system, teams decide faster and stay consistent without debating taste.")
 
     with col2:
         st.subheader("What you get")
         st.write("Positioning and category clarity")
-        st.write("Messaging system with proof points")
+        st.write("Messaging with proof points")
         st.write("Voice rules with example")
-        st.write("Visual direction and guardrails")
+        st.write("Visual constraints with acceptance tests")
         st.caption("Includes 5 generations per purchase concept.")
+
+    with st.expander("Advanced settings", expanded=False):
+        st.session_state.provider = st.selectbox(
+            "Provider",
+            options=["gemini", "openai"],
+            index=0 if st.session_state.provider == "gemini" else 1,
+        )
+
+        if st.session_state.provider == "gemini":
+            st.session_state.gemini_key = st.text_input("Gemini API key", type="password", value=st.session_state.gemini_key)
+        else:
+            st.session_state.openai_key = st.text_input("OpenAI API key", type="password", value=st.session_state.openai_key)
+            st.session_state.openai_model = st.text_input("OpenAI model", value=st.session_state.openai_model)
+
+        st.session_state.include_images = st.checkbox("Include images (optional)", value=st.session_state.include_images)
+        if st.session_state.include_images:
+            st.session_state.unsplash_key = st.text_input("Unsplash access key", type="password", value=st.session_state.unsplash_key)
 
     st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
     if st.button("Start brand interview"):
@@ -1572,11 +1671,12 @@ def landing_view():
         go("wizard")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    if not st.session_state.api_key or not st.session_state.unsplash_key:
-        st.info("Developer note: Set GEMINI_API_KEY and UNSPLASH_ACCESS_KEY in secrets.toml. This app needs requests.")
-        with st.expander("Developer settings"):
-            st.session_state.api_key = st.text_input("Gemini API key", type="password", value=st.session_state.api_key)
-            st.session_state.unsplash_key = st.text_input("Unsplash access key", type="password", value=st.session_state.unsplash_key)
+    if st.session_state.provider == "gemini" and not st.session_state.gemini_key:
+        st.info("Set GEMINI_API_KEY in secrets.toml or enter it in Advanced settings.")
+    if st.session_state.provider == "openai" and not st.session_state.openai_key:
+        st.info("Set OPENAI_API_KEY in secrets.toml or enter it in Advanced settings.")
+    if st.session_state.include_images and not st.session_state.unsplash_key:
+        st.info("Images are enabled but Unsplash key is missing.")
 
 
 def wizard_view():
@@ -1644,6 +1744,12 @@ def confirm_view():
                 st.write(ans)
             st.markdown("")
 
+    with st.expander("Generation settings", expanded=False):
+        st.write(f"Provider: {st.session_state.provider}")
+        st.write(f"Images: {'on' if st.session_state.include_images else 'off'}")
+        if st.session_state.provider == "openai":
+            st.write(f"OpenAI model: {st.session_state.openai_model}")
+
     col1, col2 = st.columns([1, 1])
     with col1:
         st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
@@ -1653,42 +1759,15 @@ def confirm_view():
 
     with col2:
         st.markdown('<div class="bigBtn">', unsafe_allow_html=True)
-        if st.button("Generate brand bible", disabled=(remaining <= 0)):
+        if st.button("Generate deck", disabled=(remaining <= 0)):
             go("generate")
         st.markdown("</div>", unsafe_allow_html=True)
 
 
 def generate_view():
     st.markdown('<div class="eyebrow">Generating</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your brand deck</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Building your deck</div>', unsafe_allow_html=True)
     st.markdown('<hr class="soft" />', unsafe_allow_html=True)
-
-    api_key = (st.session_state.api_key or "").strip()
-    unsplash_key = (st.session_state.unsplash_key or "").strip()
-
-    if not api_key:
-        st.error("Missing Gemini API key.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("landing")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    if not unsplash_key:
-        st.error("Missing Unsplash access key.")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("landing")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    if requests is None:
-        st.error("Missing dependency: requests")
-        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
-        if st.button("Back"):
-            go("landing")
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
 
     remaining = st.session_state.gen_max - st.session_state.gen_used
     if remaining <= 0:
@@ -1699,8 +1778,6 @@ def generate_view():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
-    genai.configure(api_key=api_key)
-
     brand = (st.session_state.answers.get("brand_name", "") or "").strip()
     if not brand:
         st.error("Brand name is required.")
@@ -1710,21 +1787,64 @@ def generate_view():
         st.markdown("</div>", unsafe_allow_html=True)
         return
 
+    provider = st.session_state.provider
+    gemini_key = (st.session_state.gemini_key or "").strip()
+    openai_key = (st.session_state.openai_key or "").strip()
+    openai_model = (st.session_state.openai_model or "").strip() or "gpt-4.1-mini"
+    include_images = bool(st.session_state.include_images)
+    unsplash_key = (st.session_state.unsplash_key or "").strip()
+
+    if provider == "gemini" and not gemini_key:
+        st.error("Missing Gemini API key.")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back"):
+            go("landing")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    if provider == "openai" and not openai_key:
+        st.error("Missing OpenAI API key.")
+        st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+        if st.button("Back"):
+            go("landing")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    if include_images:
+        if not unsplash_key:
+            st.error("Images are enabled but Unsplash key is missing.")
+            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+            if st.button("Back"):
+                go("landing")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+        if requests is None:
+            st.error("Images are enabled but requests is missing.")
+            st.markdown('<div class="secondaryBtn">', unsafe_allow_html=True)
+            if st.button("Back"):
+                go("landing")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
+
     prompt = build_prompt(st.session_state.answers, version_str=str(st.session_state.gen_used + 1))
     stage = st.empty()
 
     try:
         with st.spinner("Working..."):
             stage.write("Defining strategy")
-            time.sleep(0.06)
-            schema, model_used = generate_schema(prompt, timeout_s=35)
-
-            stage.write("Selecting imagery")
-            time.sleep(0.06)
+            time.sleep(0.05)
+            schema, model_used = generate_schema(
+                prompt,
+                provider=provider,
+                gemini_key=gemini_key,
+                openai_key=openai_key,
+                openai_model=openai_model,
+                timeout_s=40,
+            )
 
             stage.write("Building PDF")
-            time.sleep(0.06)
-            pdf_bytes = render_pdf(schema, st.session_state.answers, unsplash_key)
+            time.sleep(0.05)
+            pdf_bytes = render_pdf(schema, st.session_state.answers, include_images=include_images, unsplash_key=unsplash_key)
 
         st.session_state.last_json = schema
         st.session_state.model_used = model_used
@@ -1743,7 +1863,7 @@ def generate_view():
 
 def done_view():
     st.markdown('<div class="eyebrow">Ready</div>', unsafe_allow_html=True)
-    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your brand deck</div>', unsafe_allow_html=True)
+    st.markdown('<div class="heroTitle" style="font-size:34px;">Download your deck</div>', unsafe_allow_html=True)
 
     remaining = max(st.session_state.gen_max - st.session_state.gen_used, 0)
     st.caption(f"Generations remaining: {remaining} of {st.session_state.gen_max}")
