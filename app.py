@@ -337,32 +337,32 @@ def build_prompt(answers: dict, version_str: str) -> str:
 def generate_with_gemini(prompt: str, api_key: str, timeout_s: int = 35) -> tuple[dict, str]:
     if genai is None:
         raise RuntimeError("google-generativeai not installed.")
+
     genai.configure(api_key=api_key)
 
-    # Keep simple and predictable
-    model_candidates = [
-        "gemini-2.0-flash",
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
-        "gemini",
-    ]
+    # Discover valid models dynamically
+    models = []
+    for m in genai.list_models():
+        name = getattr(m, "name", "")
+        methods = getattr(m, "supported_generation_methods", []) or []
+        if "generateContent" in methods:
+            models.append(name)
 
-    last_err: Exception | None = None
-    for m in model_candidates:
+    if not models:
+        raise RuntimeError("No Gemini models available for generateContent.")
+
+    last_err = None
+    for model_name in models:
         try:
-            model = genai.GenerativeModel(m)
-            # No threads, fewer moving parts
+            model = genai.GenerativeModel(model_name)
             resp = model.generate_content(prompt)
             raw = (getattr(resp, "text", "") or "").strip()
             data = json.loads(extract_json_object(raw))
-            # Minimal validation
-            for k in ["meta", "hero", "executive_summary", "messaging_rules", "voice_rules", "examples", "guardrails", "appendix"]:
-                if k not in data:
-                    raise ValueError("JSON missing required keys.")
-            return data, m
+            return data, model_name
         except Exception as e:
             last_err = e
             continue
+
     raise RuntimeError(f"Gemini generation failed: {last_err}")
 
 
